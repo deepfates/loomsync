@@ -11,6 +11,8 @@ type BroadcastConstructor = new (options?: {
 type WebSocketConstructor = new (url: string, retryInterval?: number) => unknown;
 
 export interface BrowserAutomergeRepoOptions {
+  location?: Pick<Location, "protocol" | "host">;
+  syncPath?: string;
   indexedDb?: false | {
     database?: string;
     store?: string;
@@ -19,7 +21,7 @@ export interface BrowserAutomergeRepoOptions {
     channelName?: string;
     peerWaitMs?: number;
   };
-  websocket?: false | {
+  websocket?: false | true | {
     url: string;
     retryInterval?: number;
   };
@@ -49,7 +51,7 @@ export function createBrowserAutomergeRepoConfig(
 
   const indexedDbOptions = options.indexedDb ?? {};
   const broadcastOptions = options.broadcastChannel ?? {};
-  const websocketOptions = options.websocket ?? false;
+  const websocketOptions = options.websocket ?? true;
 
   const network = [];
   if (broadcastOptions !== false) {
@@ -61,7 +63,16 @@ export function createBrowserAutomergeRepoConfig(
     );
   }
   if (websocketOptions !== false) {
-    network.push(new WebSocket(websocketOptions.url, websocketOptions.retryInterval));
+    const websocketUrl =
+      websocketOptions === true
+        ? defaultWebSocketUrl({
+            location: options.location,
+            path: options.syncPath,
+          })
+        : websocketOptions.url;
+    const retryInterval =
+      websocketOptions === true ? undefined : websocketOptions.retryInterval;
+    if (websocketUrl) network.push(new WebSocket(websocketUrl, retryInterval));
   }
 
   return {
@@ -71,4 +82,23 @@ export function createBrowserAutomergeRepoConfig(
         : new IndexedDB(indexedDbOptions.database, indexedDbOptions.store),
     network,
   };
+}
+
+export interface DefaultWebSocketUrlOptions {
+  location?: Pick<Location, "protocol" | "host">;
+  path?: string;
+}
+
+export function defaultWebSocketUrl(options: DefaultWebSocketUrlOptions = {}) {
+  const location =
+    options.location ??
+    (typeof window === "undefined" ? undefined : window.location);
+  if (!location) return null;
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const path = normalizeSyncPath(options.path ?? "/loomsync");
+  return `${protocol}//${location.host}${path}`;
+}
+
+function normalizeSyncPath(path: string) {
+  return path.startsWith("/") ? path : `/${path}`;
 }

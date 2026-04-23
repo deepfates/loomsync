@@ -28,6 +28,11 @@
       "import": "./dist/errors.js",
       "default": "./dist/errors.js"
     },
+    "./links": {
+      "types": "./dist/links.d.ts",
+      "import": "./dist/links.js",
+      "default": "./dist/links.js"
+    },
     "./memory": {
       "types": "./dist/memory.d.ts",
       "import": "./dist/memory.js",
