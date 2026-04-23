@@ -1,4 +1,4 @@
-import type { LoomNodeId } from "@loomsync/core";
+import type { TurnId } from "@loomsync/core";
 
 export type TextPayload = { text: string };
 
@@ -9,7 +9,7 @@ export interface StoryNode {
   lastSelectedIndex?: number;
 }
 
-export interface StoryPathNode {
-  id: LoomNodeId;
+export interface StoryThreadTurn {
+  id: TurnId;
   text: string;
 }

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { Repo } from "@automerge/automerge-repo";
 import {
-  createBrowserAutomergeLoomRuntime,
-  type BrowserAutomergeLoomRuntime,
+  createBrowserLoomClient,
+  type BrowserLoomClient,
 } from "../src/browser.js";
 
-describe("browser loom runtime", () => {
-  it("creates worlds and indexes on one shared browser repo", async () => {
+describe("browser loom client", () => {
+  it("creates looms and indexes on one shared browser repo", async () => {
     const repo = new Repo();
-    const runtime = createBrowserAutomergeLoomRuntime<
+    const client = createBrowserLoomClient<
       { text: string },
       { title: string },
       never,
@@ -18,18 +18,45 @@ describe("browser loom runtime", () => {
       repo,
     });
 
-    const root = await runtime.worlds.createRoot({ title: "Story" });
-    const world = await runtime.worlds.openRoot(root.id);
-    const node = await world.appendAfter(null, { text: "Hello" });
+    const info = await client.looms.create({ title: "Story" });
+    const loom = await client.looms.open(info.id);
+    const turn = await loom.appendTurn(null, { text: "Hello" });
 
-    const index = await runtime.indexes.createIndex({ app: "loompad" });
-    await index.addRoot(root.id, { title: "Story" });
+    const index = await client.indexes.create({ app: "loompad" });
+    await index.addLoom(client.references.loom(info.id), { title: "Story" });
 
-    expect(root.id.startsWith("automerge:")).toBe(true);
-    expect(node.rootId).toBe(root.id);
+    expect(info.id.startsWith("automerge:")).toBe(true);
+    expect(turn.loomId).toBe(info.id);
     await expect(index.entries()).resolves.toEqual([
-      expect.objectContaining({ rootId: root.id, title: "Story" }),
+      expect.objectContaining({
+        ref: { v: 1, kind: "loom", loomId: info.id },
+        title: "Story",
+      }),
     ]);
-    expect((runtime as BrowserAutomergeLoomRuntime).repo).toBe(repo);
+    expect((client as BrowserLoomClient).repo).toBe(repo);
+  });
+
+  it("opens loom, turn, thread, and index references", async () => {
+    const client = createBrowserLoomClient<{ text: string }>({ repo: new Repo() });
+    const info = await client.looms.create();
+    const loom = await client.looms.open(info.id);
+    const first = await loom.appendTurn(null, { text: "A" });
+    const second = await loom.appendTurn(first.id, { text: "B" });
+    const index = await client.indexes.create();
+
+    await expect(client.openReference(client.references.loom(info.id))).resolves.toMatchObject({
+      kind: "loom",
+      loom: { id: info.id },
+    });
+    await expect(
+      client.openReference(client.references.turn(info.id, second.id)),
+    ).resolves.toMatchObject({ kind: "turn", turn: second });
+    await expect(
+      client.openReference(client.references.thread(info.id, second.id)),
+    ).resolves.toMatchObject({ kind: "thread", thread: [first, second], target: second });
+    await expect(client.openReference(client.references.index(index.id))).resolves.toMatchObject({
+      kind: "index",
+      index: { id: index.id },
+    });
   });
 });

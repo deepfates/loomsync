@@ -1,38 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryLoomWorlds } from "../../core/src/index.js";
+import { createMemoryLooms } from "../../core/src/index.js";
 import {
   appendChain,
-  flattenPath,
-  pathToStoryNodes,
+  flattenThread,
   snapshotFromNestedStory,
+  threadToStoryTurns,
   type StoryNode,
   type TextPayload,
 } from "../src/index.js";
 
 describe("text helpers", () => {
-  it("appends a text chain and flattens the resulting path", async () => {
-    const worlds = createMemoryLoomWorlds<TextPayload>({
+  it("appends a text chain and flattens the resulting thread", async () => {
+    const looms = createMemoryLooms<TextPayload>({
       createId: (() => {
         let id = 0;
-        return () => `node-${++id}`;
+        return () => `turn-${++id}`;
       })(),
       now: () => 1,
     });
-    const root = await worlds.createRoot();
-    const world = await worlds.openRoot(root.id);
+    const info = await looms.create();
+    const loom = await looms.open(info.id);
 
-    const nodes = await appendChain(world, null, [
+    const turns = await appendChain(loom, null, [
       { text: "Once" },
       { text: " upon" },
       { text: " a time" },
     ]);
 
-    const path = await world.pathTo(nodes.at(-1)!.id);
-    expect(flattenPath(path)).toBe("Once upon a time");
-    expect(pathToStoryNodes(path)).toEqual([
-      { id: "node-2", text: "Once" },
-      { id: "node-3", text: " upon" },
-      { id: "node-4", text: " a time" },
+    const thread = await loom.threadTo(turns.at(-1)!.id);
+    expect(flattenThread(thread)).toBe("Once upon a time");
+    expect(threadToStoryTurns(thread)).toEqual([
+      { id: "turn-2", text: "Once" },
+      { id: "turn-3", text: " upon" },
+      { id: "turn-4", text: " a time" },
     ]);
   });
 
@@ -60,24 +60,24 @@ describe("text helpers", () => {
       meta: { title: "Story" },
     });
 
-    expect(snapshot.nodes).toEqual([
+    expect(snapshot.turns).toEqual([
       {
         id: "a",
-        rootId: "snapshot:story",
+        loomId: "snapshot:story",
         parentId: null,
         payload: { text: "A" },
         createdAt: 123,
       },
       {
         id: "b",
-        rootId: "snapshot:story",
+        loomId: "snapshot:story",
         parentId: "a",
         payload: { text: "B" },
         createdAt: 123,
       },
       {
         id: "c",
-        rootId: "snapshot:story",
+        loomId: "snapshot:story",
         parentId: null,
         payload: { text: "C" },
         createdAt: 123,
