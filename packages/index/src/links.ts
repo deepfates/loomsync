@@ -64,6 +64,39 @@ export async function openIndexWithRetry<TEntryMeta, TIndexMeta>(
   throw lastError;
 }
 
+export async function tryOpenIndexWithRetry<TEntryMeta, TIndexMeta>(
+  indexes: LoomIndexes<TEntryMeta, TIndexMeta>,
+  indexId: string,
+  options: OpenIndexWithRetryOptions = {},
+): Promise<LoomIndex<TEntryMeta, TIndexMeta> | null> {
+  try {
+    return await openIndexWithRetry(indexes, indexId, options);
+  } catch {
+    return null;
+  }
+}
+
+export interface TryOpenIndexFromUrlOptions
+  extends IndexUrlOptions,
+    OpenIndexWithRetryOptions {}
+
+export async function tryOpenIndexFromUrl<TEntryMeta, TIndexMeta>(
+  indexes: LoomIndexes<TEntryMeta, TIndexMeta>,
+  location: Location | URL,
+  options: TryOpenIndexFromUrlOptions = {},
+): Promise<
+  | {
+      indexId: string;
+      index: LoomIndex<TEntryMeta, TIndexMeta>;
+    }
+  | null
+> {
+  const indexId = getIndexIdFromUrl(location, options);
+  if (!indexId) return null;
+  const index = await tryOpenIndexWithRetry(indexes, indexId, options);
+  return index ? { indexId, index } : null;
+}
+
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

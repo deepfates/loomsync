@@ -3,6 +3,8 @@ import {
   createIndexShareUrl,
   getIndexIdFromUrl,
   openIndexWithRetry,
+  tryOpenIndexFromUrl,
+  tryOpenIndexWithRetry,
 } from "../src/links.js";
 import { LoomError } from "../../core/src/errors.js";
 import type { LoomIndexes } from "../src/types.js";
@@ -39,5 +41,38 @@ describe("openIndexWithRetry", () => {
       openIndexWithRetry(indexes, "idx", { attempts: 2, delayMs: 1 }),
     ).resolves.toMatchObject({ id: "idx" });
     expect(attempts).toBe(2);
+  });
+
+  it("can return null instead of aborting for missing shared indexes", async () => {
+    const indexes = {
+      async openIndex() {
+        throw new LoomError("UNKNOWN_ROOT", "missing");
+      },
+    } as unknown as LoomIndexes;
+
+    await expect(
+      tryOpenIndexWithRetry(indexes, "missing", { attempts: 1, delayMs: 1 }),
+    ).resolves.toBeNull();
+    await expect(
+      tryOpenIndexFromUrl(indexes, new URL("https://loom.test/?index=missing"), {
+        attempts: 1,
+        delayMs: 1,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("opens indexes from share urls when available", async () => {
+    const indexes = {
+      async openIndex(indexId: string) {
+        return { id: indexId };
+      },
+    } as unknown as LoomIndexes;
+
+    await expect(
+      tryOpenIndexFromUrl(indexes, new URL("https://loom.test/?index=idx"), {
+        attempts: 1,
+        delayMs: 1,
+      }),
+    ).resolves.toMatchObject({ indexId: "idx", index: { id: "idx" } });
   });
 });

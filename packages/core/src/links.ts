@@ -63,6 +63,39 @@ export async function openRootWithRetry<TPayload, TRootMeta, TNodeMeta>(
   throw lastError;
 }
 
+export async function tryOpenRootWithRetry<TPayload, TRootMeta, TNodeMeta>(
+  worlds: LoomWorlds<TPayload, TRootMeta, TNodeMeta>,
+  rootId: LoomRootId,
+  options: OpenWithRetryOptions = {},
+): Promise<LoomWorld<TPayload, TRootMeta, TNodeMeta> | null> {
+  try {
+    return await openRootWithRetry(worlds, rootId, options);
+  } catch {
+    return null;
+  }
+}
+
+export interface TryOpenRootFromUrlOptions
+  extends RootUrlOptions,
+    OpenWithRetryOptions {}
+
+export async function tryOpenRootFromUrl<TPayload, TRootMeta, TNodeMeta>(
+  worlds: LoomWorlds<TPayload, TRootMeta, TNodeMeta>,
+  location: Location | URL,
+  options: TryOpenRootFromUrlOptions = {},
+): Promise<
+  | {
+      rootId: LoomRootId;
+      world: LoomWorld<TPayload, TRootMeta, TNodeMeta>;
+    }
+  | null
+> {
+  const rootId = getRootIdFromUrl(location, options);
+  if (!rootId) return null;
+  const world = await tryOpenRootWithRetry(worlds, rootId, options);
+  return world ? { rootId, world } : null;
+}
+
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

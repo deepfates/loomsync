@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMemoryLoomIndexes } from "../src/index.js";
+import { upsertRoot } from "../src/entries.js";
 
 function deterministicIndexes() {
   let nextId = 0;
@@ -71,5 +72,25 @@ describe("memory loom indexes", () => {
     await expect(index.addRoot("automerge:first")).rejects.toMatchObject({
       code: "DUPLICATE_NODE_ID",
     });
+  });
+
+  it("upserts root links so shared imports can refresh metadata", async () => {
+    const indexes = deterministicIndexes();
+    const index = await indexes.createIndex();
+
+    const added = await upsertRoot(index, "automerge:first", {
+      title: "First",
+      kind: "story",
+      meta: { app: "old" },
+    });
+    const updated = await upsertRoot(index, "automerge:first", {
+      title: "Renamed",
+      kind: "story",
+      meta: { app: "new" },
+    });
+
+    expect(added.addedAt).toBe(updated.addedAt);
+    expect(updated.updatedAt).toBe(2002);
+    expect(await index.entries()).toEqual([updated]);
   });
 });
