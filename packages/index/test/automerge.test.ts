@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Repo } from "@automerge/automerge-repo";
 import { loomRef } from "@loomsync/core";
-import { createAutomergeLoomIndexes } from "../src/index.js";
+import { createAutomergeLoomIndexes } from "../src/automerge.js";
 
 function deterministicAutomergeIndexes() {
   let nextTime = 4000;

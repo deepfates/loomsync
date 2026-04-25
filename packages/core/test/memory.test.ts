@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  createMemoryLooms,
-  LoomError,
-  type LoomSnapshot,
-} from "../src/index.js";
+import { LoomError } from "../src/errors.js";
+import { createMemoryLooms } from "../src/memory.js";
+import type { LoomSnapshot } from "../src/types.js";
 
 type Payload = { text: string };
 type LoomMeta = { title: string };

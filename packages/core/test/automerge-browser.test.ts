@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createBrowserAutomergeRepoConfig,
   defaultWebSocketUrl,
-} from "../src/index.js";
+} from "../src/browser.js";
 
 class FakeStorage {
   constructor(

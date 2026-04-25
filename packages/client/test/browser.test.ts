@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Repo } from "@automerge/automerge-repo";
 import {
   createBrowserLoomClient,
-  type BrowserLoomClient,
+  type BrowserLoomClientOptions,
 } from "../src/browser.js";
 
 describe("browser loom client", () => {
@@ -33,7 +33,9 @@ describe("browser loom client", () => {
         title: "Story",
       }),
     ]);
-    expect((client as BrowserLoomClient).repo).toBe(repo);
+    expect(client.repo).toBe(repo);
+
+    await client.close();
   });
 
   it("opens loom, turn, thread, and index references", async () => {
@@ -58,5 +60,25 @@ describe("browser loom client", () => {
       kind: "index",
       index: { id: index.id },
     });
+
+    await client.close();
+  });
+
+  it("assembles a browser client from runtime options", async () => {
+    const options: BrowserLoomClientOptions = {
+      repo: new Repo(),
+      browser: {
+        indexedDb: false,
+        broadcastChannel: false,
+        websocket: false,
+      },
+    };
+
+    const client = createBrowserLoomClient(options);
+
+    expect(client.looms).toBeDefined();
+    expect(client.indexes).toBeDefined();
+
+    await client.close();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryLooms } from "../../core/src/index.js";
+import { createMemoryLooms } from "../../core/src/memory.js";
 import {
   appendChain,
   flattenThread,

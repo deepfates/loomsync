@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loomRef } from "@loomsync/core";
-import { createMemoryLoomIndexes } from "../src/index.js";
+import { createMemoryLoomIndexes } from "../src/memory.js";
 import { upsertLoom } from "../src/entries.js";
 
 function deterministicIndexes() {

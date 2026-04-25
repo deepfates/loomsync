@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Repo } from "@automerge/automerge-repo";
-import {
-  createAutomergeLooms,
-  type LoomSnapshot,
-} from "../src/index.js";
+import { createAutomergeLooms } from "../src/automerge.js";
+import type { LoomSnapshot } from "../src/types.js";
 
 type Payload = { text: string };
 type LoomMeta = { title: string };
