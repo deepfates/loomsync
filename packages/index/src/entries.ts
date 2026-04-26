@@ -1,4 +1,4 @@
-import type { LoomReference } from "@loomsync/core";
+import type { LoomReference } from "@lync/core";
 import type {
   LoomIndex,
   LoomIndexEntry,

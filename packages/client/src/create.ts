@@ -12,8 +12,8 @@ import {
   turnRef,
   type LoomReference,
   type Looms,
-} from "@loomsync/core";
-import type { LoomIndexes } from "@loomsync/index";
+} from "@lync/core";
+import type { LoomIndexes } from "@lync/index";
 import type { LoomClient } from "./types.js";
 
 export interface CreateLoomClientOptions<

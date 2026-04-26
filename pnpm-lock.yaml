@@ -48,10 +48,10 @@ importers:
       '@automerge/automerge-repo-network-websocket':
         specifier: ^2.5.5
         version: 2.5.5
-      '@loomsync/core':
+      '@lync/core':
         specifier: workspace:*
         version: link:../core
-      '@loomsync/index':
+      '@lync/index':
         specifier: workspace:*
         version: link:../index
 
@@ -59,7 +59,7 @@ importers:
 
   packages/index:
     dependencies:
-      '@loomsync/core':
+      '@lync/core':
         specifier: workspace:*
         version: link:../core
 
@@ -74,12 +74,6 @@ importers:
       isomorphic-ws:
         specifier: ^5.0.0
         version: 5.0.0(ws@8.20.0)
-
-  packages/text:
-    dependencies:
-      '@loomsync/core':
-        specifier: workspace:*
-        version: link:../core
 
 packages:
 

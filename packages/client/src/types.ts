@@ -13,8 +13,8 @@ import type {
   encodeReference,
   decodeReference,
   parseReference,
-} from "@loomsync/core";
-import type { LoomIndex, LoomIndexes } from "@loomsync/index";
+} from "@lync/core";
+import type { LoomIndex, LoomIndexes } from "@lync/index";
 
 export type ReferenceHelpers = {
   loom: typeof loomRef;

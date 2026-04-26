@@ -55,7 +55,7 @@ describe("browser Automerge repo factory", () => {
     expect(config.network).toHaveLength(2);
     expect(config.network[1]).toBeInstanceOf(FakeWebSocket);
     expect((config.network[1] as FakeWebSocket).url).toBe(
-      "wss://loom.test/loomsync",
+      "wss://loom.test/lync",
     );
   });
 

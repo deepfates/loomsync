@@ -22,7 +22,7 @@ describe("browser loom client", () => {
     const loom = await client.looms.open(info.id);
     const turn = await loom.appendTurn(null, { text: "Hello" });
 
-    const index = await client.indexes.create({ app: "loompad" });
+    const index = await client.indexes.create({ app: "textile" });
     await index.addLoom(client.references.loom(info.id), { title: "Story" });
 
     expect(info.id.startsWith("automerge:")).toBe(true);

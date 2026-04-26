@@ -1,6 +1,6 @@
-# LoomSync
+# Lync
 
-LoomSync is a small TypeScript toolkit for local-first branching documents.
+Lync is a small TypeScript toolkit for local-first branching documents.
 
 It gives an app a durable, synced **loom**: an append-only set of **turns** with
 parent pointers. From those turns you can materialize **threads**, discover
@@ -10,6 +10,9 @@ leaves, export/import deterministic snapshots, and create portable
 The implementation is intentionally boring underneath: Automerge documents,
 IndexedDB persistence, BroadcastChannel tab sync, and optional WebSocket sync.
 The public API stays about looms, turns, threads, references, and indexes.
+Lync also ships small **profile contracts** for data shapes that need
+cross-application interoperability. A profile is not a helper layer; it is a
+versioned schema target that independent writers and readers can agree on.
 
 ## Vocabulary
 
@@ -22,12 +25,14 @@ The public API stays about looms, turns, threads, references, and indexes.
 - A **reference** is a portable address to a loom, turn, thread, or index.
 - An **index** is a synced discovery document that stores loom references plus
   narrow display metadata. It does not duplicate loom contents.
+- A **profile** is a named content contract for looms that multiple apps can
+  read and write.
 
 ## Boundaries
 
-LoomSync stores durable shared content. It does not store session state.
+Lync stores durable shared content. It does not store session state.
 
-Keep these in your app, not in LoomSync snapshots or index entries:
+Keep these in your app, not in Lync snapshots or index entries:
 
 - current focus
 - preferred child or branch
@@ -44,22 +49,91 @@ Use the three data lanes deliberately:
 - **loom meta**: mutable chrome for the loom, for example title or color
 
 For story-like apps, the seed text should be a top-level turn:
-`appendTurn(null, { text: "Once..." })`. Editing that seed should append another
-top-level turn with turn metadata such as `{ revises: seed.id }`, not rewrite
-loom metadata or copy a whole subtree.
+`appendTurn(null, { text: "Once..." })`. If an app treats that seed as the
+identity of the story, editing it should create a new loom. Lync keeps turns
+append-only; it does not decide whether a seed revision belongs in the same loom
+or should become a new loom.
 
 ## Packages
 
-- `@loomsync/core`: looms, turns, threads, references, and snapshots.
-- `@loomsync/index`: synced indexes of loom references.
-- `@loomsync/client`: browser, Node, and test runtime clients.
-- `@loomsync/text`: small helpers for text payload looms.
-- `@loomsync/sync-server`: a simple Automerge WebSocket sync relay.
+- `@lync/core`: looms, turns, threads, references, and snapshots.
+- `@lync/index`: synced indexes of loom references.
+- `@lync/client`: browser, Node, and test runtime clients.
+- `@lync/sync-server`: a simple Automerge WebSocket sync relay.
+
+## Text Story Profile
+
+`@lync/core/profiles/text-story` defines the starter interoperable profile for
+branching prose:
+
+```ts
+import {
+  textStoryLoomMeta,
+  type TextStoryLoomMeta,
+  type TextStoryTurnMeta,
+  type TextStoryTurnPayload,
+} from "@lync/core/profiles/text-story";
+```
+
+The profile contract is intentionally small:
+
+- loom meta has `profile: "org.lync.profile.textStory.v1"` and optional `title`
+- turn payload is `{ text: string }`
+- turn meta may include `role`, `revises`, and app-defined `generatedBy`
+- the first top-level turn is the story opening
+- child turns are continuations/branches
+- if an app treats the opening as story identity, editing it should create a new
+  loom
+
+An external TypeScript program can write a Textile-readable story without
+importing Textile:
+
+```ts
+import { createNodeLoomClient } from "@lync/client/node";
+import {
+  textStoryLoomMeta,
+  type TextStoryLoomMeta,
+  type TextStoryTurnMeta,
+  type TextStoryTurnPayload,
+} from "@lync/core/profiles/text-story";
+
+const client = createNodeLoomClient<
+  TextStoryTurnPayload,
+  TextStoryLoomMeta,
+  TextStoryTurnMeta
+>({
+  syncUrl: "wss://loompad.lol/lync",
+});
+
+const info = await client.looms.create(
+  textStoryLoomMeta({ title: "Written elsewhere" }),
+);
+const loom = await client.looms.open(info.id);
+
+const opening = await loom.appendTurn(
+  null,
+  { text: "Once..." },
+  { role: "prose" },
+);
+const next = await loom.appendTurn(
+  opening.id,
+  { text: " then..." },
+  { role: "prose" },
+);
+
+const url = client.references.toUrl(
+  client.references.thread(info.id, next.id),
+  new URL("https://loompad.lol/"),
+);
+```
+
+The URL is enough for a reader to open the loom if both sides can reach the same
+sync relay.
 
 ## Quick Start
 
 ```ts
-import { createTestLoomClient } from "@loomsync/client/testing";
+import { createTestLoomClient } from "@lync/client/testing";
 
 type TextPayload = { text: string };
 type LoomMeta = { title: string };
@@ -85,11 +159,7 @@ const next = await loom.appendTurn(
   { role: "prose" },
 );
 
-await loom.appendTurn(
-  null,
-  { text: "At the edge of town," },
-  { role: "revision", revises: seed.id },
-);
+await loom.appendTurn(seed.id, { text: " the tower burned." }, { role: "prose" });
 
 const thread = await loom.threadTo(next.id);
 const leaves = await loom.leaves();
@@ -99,36 +169,70 @@ const snapshot = await loom.export();
 ## Node Scripts
 
 Agents, importers, and command-line tools can write to the same kind of loom
-without depending on Loompad:
+without depending on Textile:
 
 ```ts
-import { createNodeLoomClient } from "@loomsync/client/node";
+import { createNodeLoomClient } from "@lync/client/node";
+import {
+  textStoryLoomMeta,
+  type TextStoryLoomMeta,
+  type TextStoryTurnMeta,
+  type TextStoryTurnPayload,
+} from "@lync/core/profiles/text-story";
 
-const client = createNodeLoomClient<TextPayload>({
-  storageDir: ".loomsync",
-  syncUrl: "ws://localhost:3030",
+const client = createNodeLoomClient<
+  TextStoryTurnPayload,
+  TextStoryLoomMeta,
+  TextStoryTurnMeta
+>({
+  storageDir: ".lync",
+  syncUrl: "ws://localhost:3030/lync",
 });
 
-const info = await client.looms.create({ title: "Imported thread" });
+const info = await client.looms.create(
+  textStoryLoomMeta({ title: "Imported thread" }),
+);
 const loom = await client.looms.open(info.id);
 await loom.appendTurn(null, { text: "First imported post" });
 
 await client.close();
 ```
 
+## Sync Server
+
+`@lync/sync-server` provides a small Automerge WebSocket relay. Its default
+WebSocket path is `/lync`, and the standalone server reports that full URL:
+
+```ts
+import { createLyncServer } from "@lync/sync-server";
+
+const server = createLyncServer({
+  port: 3030,
+  storageDir: ".lync-relay",
+  authenticate(request) {
+    return request.headers.authorization === `Bearer ${process.env.LYNC_TOKEN}`;
+  },
+});
+
+console.log(server.url); // ws://127.0.0.1:3030/lync
+```
+
+`authenticate` is synchronous by design. Return `false` to reject an upgrade; if
+the predicate throws, Lync rejects the upgrade instead of accepting it.
+
 ## Browser Client
 
 Browser apps usually want looms, indexes, references, and one shared Automerge
-repo. `@loomsync/client/browser` provides that shape:
+repo. `@lync/client/browser` provides that shape:
 
 ```ts
-import { createBrowserLoomClient } from "@loomsync/client/browser";
+import { createBrowserLoomClient } from "@lync/client/browser";
 
 const client = createBrowserLoomClient<TextPayload, LoomMeta, TurnMeta>({
   browser: {
     indexedDb: { database: "my-app", store: "documents" },
     broadcastChannel: { channelName: "my-app" },
-    syncPath: "/loomsync",
+    syncPath: "/lync",
   },
 });
 
@@ -173,12 +277,13 @@ export default defineConfig({
 Packages expose subpaths so apps can import only the surface they need:
 
 ```ts
-import { createNodeLoomClient } from "@loomsync/client/node";
-import { createAutomergeLooms } from "@loomsync/core/automerge";
-import type { Loom, Turn } from "@loomsync/core/types";
+import { createNodeLoomClient } from "@lync/client/node";
+import { createAutomergeLooms } from "@lync/core/automerge";
+import { textStoryLoomMeta } from "@lync/core/profiles/text-story";
+import type { Loom, Turn } from "@lync/core/types";
 ```
 
-The normal application path is `@loomsync/client/*`. Lower-level core and index
+The normal application path is `@lync/client/*`. Lower-level core and index
 adapter subpaths exist for custom runtimes and focused tests.
 
 ## Vendoring Into Apps
@@ -187,13 +292,13 @@ Until the packages are published, vendoring the workspace is a practical
 integration path. Keep it mechanical:
 
 - mirror this repo into the app under a clear directory such as
-  `vendor/loomsync`
+  `vendor/lync`
 - exclude `.git`, `node_modules`, build output, and test-only files if the host
   runner would pick them up
 - apply only app-specific import-path shims in the vendored copy
 - fold real library fixes back into this repo first, then re-vendor
 
-That keeps LoomSync as the source of truth while still letting apps test against
+That keeps Lync as the source of truth while still letting apps test against
 the exact library code they ship.
 
 ## Development

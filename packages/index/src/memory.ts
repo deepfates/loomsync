@@ -1,5 +1,5 @@
-import { LoomError, duplicateLoomId, loomRef, unknownIndex } from "@loomsync/core";
-import type { IndexId, LoomId, LoomReference } from "@loomsync/core";
+import { LoomError, duplicateLoomId, loomRef, unknownIndex } from "@lync/core";
+import type { IndexId, LoomId, LoomReference } from "@lync/core";
 import type {
   LoomIndex,
   LoomIndexEntry,

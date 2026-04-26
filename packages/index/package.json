@@ -1,7 +1,7 @@
 {
-  "name": "@loomsync/index",
+  "name": "@lync/index",
   "version": "0.2.0",
-  "description": "Index APIs for linked LoomSync looms.",
+  "description": "Index APIs for linked Lync looms.",
   "type": "module",
   "license": "MIT",
   "sideEffects": false,
@@ -42,6 +42,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@loomsync/core": "workspace:*"
+    "@lync/core": "workspace:*"
   }
 }
