@@ -1,6 +1,6 @@
-# Lync
+# lync
 
-Lync is a small TypeScript toolkit for local-first branching documents.
+lync is a small TypeScript toolkit for local-first branching documents.
 
 It gives an app a durable, synced **loom**: an append-only set of **turns** with
 parent pointers. From those turns you can materialize **threads**, discover
@@ -10,7 +10,7 @@ leaves, export/import deterministic snapshots, and create portable
 The implementation is intentionally boring underneath: Automerge documents,
 IndexedDB persistence, BroadcastChannel tab sync, and optional WebSocket sync.
 The public API stays about looms, turns, threads, references, and indexes.
-Lync also ships small **profile contracts** for data shapes that need
+lync also ships small **profile contracts** for data shapes that need
 cross-application interoperability. A profile is not a helper layer; it is a
 versioned schema target that independent writers and readers can agree on.
 
@@ -30,9 +30,9 @@ versioned schema target that independent writers and readers can agree on.
 
 ## Boundaries
 
-Lync stores durable shared content. It does not store session state.
+lync stores durable shared content. It does not store session state.
 
-Keep these in your app, not in Lync snapshots or index entries:
+Keep these in your app, not in lync snapshots or index entries:
 
 - current focus
 - preferred child or branch
@@ -50,7 +50,7 @@ Use the three data lanes deliberately:
 
 For story-like apps, the seed text should be a top-level turn:
 `appendTurn(null, { text: "Once..." })`. If an app treats that seed as the
-identity of the story, editing it should create a new loom. Lync keeps turns
+identity of the story, editing it should create a new loom. lync keeps turns
 append-only; it does not decide whether a seed revision belongs in the same loom
 or should become a new loom.
 
@@ -204,9 +204,9 @@ await client.close();
 WebSocket path is `/lync`, and the standalone server reports that full URL:
 
 ```ts
-import { createLyncServer } from "@lync/sync-server";
+import { createlyncServer } from "@lync/sync-server";
 
-const server = createLyncServer({
+const server = createlyncServer({
   port: 3030,
   storageDir: ".lync-relay",
   authenticate(request) {
@@ -218,7 +218,7 @@ console.log(server.url); // ws://127.0.0.1:3030/lync
 ```
 
 `authenticate` is synchronous by design. Return `false` to reject an upgrade; if
-the predicate throws, Lync rejects the upgrade instead of accepting it.
+the predicate throws, lync rejects the upgrade instead of accepting it.
 
 ## Browser Client
 
@@ -298,7 +298,7 @@ integration path. Keep it mechanical:
 - apply only app-specific import-path shims in the vendored copy
 - fold real library fixes back into this repo first, then re-vendor
 
-That keeps Lync as the source of truth while still letting apps test against
+That keeps lync as the source of truth while still letting apps test against
 the exact library code they ship.
 
 ## Development
