@@ -10,7 +10,7 @@ import type {
 import { WebSocketServerAdapter } from "@automerge/automerge-repo-network-websocket";
 import { WebSocketServer } from "isomorphic-ws";
 
-export interface LoomSyncServerOptions {
+export interface LyncServerOptions {
   port?: number;
   host?: string;
   path?: string;
@@ -19,14 +19,14 @@ export interface LoomSyncServerOptions {
   repoConfig?: Omit<RepoConfig, "network">;
 }
 
-export interface LoomSyncServer {
+export interface LyncServer {
   repo: Repo;
   server: WebSocketServer;
   url: string;
   close(): Promise<void>;
 }
 
-export function createLoomSyncServer(options: LoomSyncServerOptions = {}): LoomSyncServer {
+export function createLyncServer(options: LyncServerOptions = {}): LyncServer {
   const port = options.port ?? 0;
   const host = options.host ?? "127.0.0.1";
   const server = new WebSocketServer({
@@ -56,17 +56,17 @@ export function createLoomSyncServer(options: LoomSyncServerOptions = {}): LoomS
   };
 }
 
-export interface AttachLoomSyncServerOptions extends Omit<LoomSyncServerOptions, "port" | "host"> {
+export interface AttachLyncServerOptions extends Omit<LyncServerOptions, "port" | "host"> {
   repo?: Repo;
 }
 
-export function attachLoomSyncServer(
+export function attachLyncServer(
   server: http.Server,
-  options: AttachLoomSyncServerOptions = {},
+  options: AttachLyncServerOptions = {},
 ) {
   const socketServer = new WebSocketServer({
     server,
-    path: options.path ?? "/loomsync",
+    path: options.path ?? "/lync",
   });
   const repo = options.repo ?? createRelayRepo(socketServer, options);
 
@@ -89,7 +89,7 @@ export function attachLoomSyncServer(
 
 function createRelayRepo(
   server: WebSocketServer,
-  options: Pick<LoomSyncServerOptions, "keepAliveInterval" | "repoConfig" | "storageDir">,
+  options: Pick<LyncServerOptions, "keepAliveInterval" | "repoConfig" | "storageDir">,
 ) {
   const adapter = new WebSocketServerAdapter(server, options.keepAliveInterval);
   return new Repo({

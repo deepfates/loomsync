@@ -1,18 +1,18 @@
-# LoomSync v0.2 Spec
+# Lync v0.2 Spec
 
 ## Package Boundaries
 
-`@loomsync/core` models one shared branching loom. A loom has append-only turns,
+`@lync/core` models one shared branching loom. A loom has append-only turns,
 canonical sibling order, thread reconstruction, leaves, subscriptions,
 references, and deterministic import/export.
 
-`@loomsync/index` models a linked index of looms. It stores loom references and
+`@lync/index` models a linked index of looms. It stores loom references and
 lightweight display metadata. It does not embed loom content.
 
-`@loomsync/text` provides helpers for text payload looms, including thread
+`@lync/text` provides helpers for text payload looms, including thread
 flattening and appending chains of text chunks.
 
-`@loomsync/sync-server` provides a simple Automerge WebSocket sync relay. The
+`@lync/sync-server` provides a simple Automerge WebSocket sync relay. The
 relay helps peers find and sync documents; it is not the semantic owner of a
 loom.
 
@@ -26,7 +26,7 @@ the target backend.
 
 ## Reference Model
 
-LoomSync has four reference kinds:
+Lync has four reference kinds:
 
 - `loom`: open a whole loom
 - `turn`: open a loom and focus one exact turn

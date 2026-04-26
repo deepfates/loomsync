@@ -1,4 +1,4 @@
-# LoomSync Roadmap
+# Lync Roadmap
 
 ## Verification Loop
 
@@ -16,7 +16,7 @@ pnpm verify
 - [x] Define `core`, `index`, `text`, and `sync-server` package boundaries.
 - [x] Implement in-memory loom backend.
 - [x] Implement in-memory index backend.
-- [x] Implement text helpers for Loompad migration.
+- [x] Implement text helpers for Textile migration.
 - [x] Add meaningful topology, reference, index, sync, and text tests.
 - [x] Add Automerge document schema for looms.
 - [x] Implement Automerge `create`, `open`, `appendTurn`, and queries.
@@ -26,11 +26,11 @@ pnpm verify
 - [x] Implement Automerge-backed indexes.
 - [x] Add WebSocket sync relay package.
 - [x] Cut public language to `loom`, `turn`, `thread`, `reference`, and `index`.
-- [x] Fold Loompad integration learnings into docs and payload boundaries.
+- [x] Fold Textile integration learnings into docs and payload boundaries.
 
 ## Likely Next Work
 
-- [ ] Publish packages once the vendored Loompad integration is stable.
+- [ ] Publish packages once the vendored Textile integration is stable.
 - [ ] Add a small example app that demonstrates loom, index, and thread links.
 - [ ] Add docs for recommended app-level turn metadata conventions.
 - [ ] Add sync-server deployment notes.

@@ -57,7 +57,7 @@ export function createBrowserAutomergeRepoConfig(
   if (broadcastOptions !== false) {
     network.push(
       new Broadcast({
-        channelName: broadcastOptions.channelName ?? "loomsync",
+        channelName: broadcastOptions.channelName ?? "lync",
         peerWaitMs: broadcastOptions.peerWaitMs,
       }),
     );
@@ -95,7 +95,7 @@ export function defaultWebSocketUrl(options: DefaultWebSocketUrlOptions = {}) {
     (typeof window === "undefined" ? undefined : window.location);
   if (!location) return null;
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const path = normalizeSyncPath(options.path ?? "/loomsync");
+  const path = normalizeSyncPath(options.path ?? "/lync");
   return `${protocol}//${location.host}${path}`;
 }
 

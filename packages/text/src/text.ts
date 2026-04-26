@@ -2,7 +2,7 @@ import type {
   Loom,
   Turn,
   TurnId,
-} from "@loomsync/core";
+} from "@lync/core";
 import type { TextPayload, TextThreadTurn } from "./types.js";
 
 export function flattenThread(turns: Turn<TextPayload>[]): string {

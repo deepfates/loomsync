@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loomRef } from "@loomsync/core";
+import { loomRef } from "@lync/core";
 import { createMemoryLoomIndexes } from "../src/memory.js";
 import { upsertLoom } from "../src/entries.js";
 
@@ -20,7 +20,7 @@ describe("memory loom indexes", () => {
     const first = await index.addLoom(loomRef("automerge:first"), {
       title: "First",
       kind: "story",
-      meta: { app: "loompad" },
+      meta: { app: "textile" },
     });
     const second = await index.addLoom(loomRef("automerge:second"), { title: "Second" });
 

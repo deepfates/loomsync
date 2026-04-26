@@ -1,7 +1,7 @@
 {
-  "name": "@loomsync/text",
+  "name": "@lync/text",
   "version": "0.2.0",
-  "description": "Text helpers for LoomSync looms.",
+  "description": "Text helpers for Lync looms.",
   "type": "module",
   "license": "MIT",
   "sideEffects": false,
@@ -32,6 +32,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@loomsync/core": "workspace:*"
+    "@lync/core": "workspace:*"
   }
 }

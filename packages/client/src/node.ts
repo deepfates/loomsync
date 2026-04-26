@@ -11,11 +11,11 @@ import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websoc
 import {
   createAutomergeLooms,
   type AutomergeLoomsOptions,
-} from "@loomsync/core/automerge";
+} from "@lync/core/automerge";
 import {
   createAutomergeLoomIndexes,
   type AutomergeLoomIndexesOptions,
-} from "@loomsync/index/automerge";
+} from "@lync/index/automerge";
 import { createLoomClient } from "./create.js";
 import type { LoomClient } from "./types.js";
 
@@ -80,7 +80,7 @@ function createNodeRepo(options: NodeLoomClientOptions): Repo {
     storage:
       options.storageDir === false
         ? undefined
-        : new FileStorageAdapter(options.storageDir ?? ".loomsync"),
+        : new FileStorageAdapter(options.storageDir ?? ".lync"),
     network:
       websocket === false
         ? []

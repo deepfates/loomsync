@@ -6,7 +6,7 @@ import { createNodeLoomClient } from "../src/node.js";
 
 describe("node loom client", () => {
   it("persists looms through the filesystem storage adapter", async () => {
-    const storageDir = await fs.mkdtemp(path.join(os.tmpdir(), "loomsync-node-"));
+    const storageDir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-node-"));
 
     const client = createNodeLoomClient<{ text: string }>({
       storageDir,

@@ -1,4 +1,4 @@
-import type { TurnId } from "@loomsync/core";
+import type { TurnId } from "@lync/core";
 
 // Minimal v0.2 text payload. Richer app semantics should live in turn meta:
 // role, author/provenance, revisions, responses, references, and other

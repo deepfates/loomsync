@@ -1,7 +1,7 @@
 {
-  "name": "@loomsync/sync-server",
+  "name": "@lync/sync-server",
   "version": "0.1.0",
-  "description": "Automerge WebSocket sync relay for LoomSync.",
+  "description": "Automerge WebSocket sync relay for Lync.",
   "type": "module",
   "license": "MIT",
   "sideEffects": false,

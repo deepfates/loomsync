@@ -1,5 +1,5 @@
-import { createMemoryLooms, type MemoryLoomsOptions } from "@loomsync/core/memory";
-import { createMemoryLoomIndexes, type MemoryLoomIndexesOptions } from "@loomsync/index/memory";
+import { createMemoryLooms, type MemoryLoomsOptions } from "@lync/core/memory";
+import { createMemoryLoomIndexes, type MemoryLoomIndexesOptions } from "@lync/index/memory";
 import { createLoomClient } from "./create.js";
 import type { LoomClient } from "./types.js";
 

@@ -1,7 +1,7 @@
 {
-  "name": "@loomsync/client",
+  "name": "@lync/client",
   "version": "0.2.0",
-  "description": "Runtime clients for LoomSync browser, Node, and tests.",
+  "description": "Runtime clients for Lync browser, Node, and tests.",
   "type": "module",
   "license": "MIT",
   "sideEffects": false,
@@ -44,7 +44,7 @@
   "dependencies": {
     "@automerge/automerge-repo": "^2.5.5",
     "@automerge/automerge-repo-network-websocket": "^2.5.5",
-    "@loomsync/core": "workspace:*",
-    "@loomsync/index": "workspace:*"
+    "@lync/core": "workspace:*",
+    "@lync/index": "workspace:*"
   }
 }

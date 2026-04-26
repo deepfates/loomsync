@@ -2,15 +2,15 @@ import type { Repo } from "@automerge/automerge-repo";
 import {
   createAutomergeLooms,
   type AutomergeLoomsOptions,
-} from "@loomsync/core/automerge";
+} from "@lync/core/automerge";
 import {
   createBrowserAutomergeRepo,
   type BrowserAutomergeRepoOptions,
-} from "@loomsync/core/browser";
+} from "@lync/core/browser";
 import {
   createAutomergeLoomIndexes,
   type AutomergeLoomIndexesOptions,
-} from "@loomsync/index/automerge";
+} from "@lync/index/automerge";
 import { createLoomClient } from "./create.js";
 import type { LoomClient } from "./types.js";
 

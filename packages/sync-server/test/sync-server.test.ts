@@ -4,14 +4,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  attachLoomSyncServer,
-  createLoomSyncServer,
+  attachLyncServer,
+  createLyncServer,
   FileStorageAdapter,
 } from "../src/index.js";
 
-describe("loom sync server", () => {
+describe("lync server", () => {
   it("starts a WebSocket-backed Automerge repo and closes cleanly", async () => {
-    const server = createLoomSyncServer();
+    const server = createLyncServer();
 
     expect(server.url.startsWith("ws://")).toBe(true);
     expect(server.repo.peerId).toBeTruthy();
@@ -21,7 +21,7 @@ describe("loom sync server", () => {
 
   it("attaches a relay to an existing HTTP server", async () => {
     const httpServer = http.createServer();
-    const relay = attachLoomSyncServer(httpServer);
+    const relay = attachLyncServer(httpServer);
 
     expect(relay.repo.peerId).toBeTruthy();
 
@@ -30,7 +30,7 @@ describe("loom sync server", () => {
   });
 
   it("persists storage chunks to the filesystem", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "loomsync-storage-"));
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-storage-"));
     const storage = new FileStorageAdapter(dir);
     await storage.save(["doc", "snapshot"], new Uint8Array([1, 2, 3]));
 

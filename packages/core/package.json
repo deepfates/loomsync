@@ -1,5 +1,5 @@
 {
-  "name": "@loomsync/core",
+  "name": "@lync/core",
   "version": "0.2.0",
   "description": "Core APIs for local-first addressable looms.",
   "type": "module",
