@@ -156,7 +156,7 @@ export class LoreUnion {
     if (line.class === "garbage") return { status: "garbage", line };
     if (!isUnionCandidate(line)) return { status: "garbage", line };
 
-    const missingParent = firstMissingParent(line, this.acceptedById);
+    const missingParent = firstMissingParent(line, this.acceptedById, this.conflictIds);
     if (missingParent) {
       this.bufferPending(missingParent, line);
       return { status: "buffered", line, missingParent };
@@ -518,10 +518,12 @@ function conflictVariantFor(line: LoreLineDiagnostic): LoreConflictVariant {
 function firstMissingParent(
   line: LoreLineDiagnostic & { event: LoreEventBody },
   acceptedById: Map<string, LoreLineDiagnostic>,
+  conflictIds: Set<string>,
 ): string | undefined {
   const parent = line.event.parents[0];
   if (!parent) return undefined;
   if (acceptedById.has(parent)) return undefined;
+  if (conflictIds.has(parent)) return undefined;
   return parent;
 }
 

@@ -264,14 +264,18 @@ describe("LORE-V0 line parser vectors", () => {
       child: `${eventBody({ id: "child", parents: ["missing-root"] })}\n`,
       grandchild: `${eventBody({ id: "grandchild", parents: ["child"] })}\n`,
       independent: `${eventBody({ id: "independent" })}\n`,
+      conflictFirst: `${eventBody({ id: "conflicted-parent", payload: { text: "first" } })}\n`,
+      conflictSecond: `${eventBody({ id: "conflicted-parent", payload: { text: "second" } })}\n`,
+      conflictChild: `${eventBody({ id: "conflict-child", parents: ["conflicted-parent"] })}\n`,
     };
     const orderings = [
       ["child", "grandchild", "independent"],
       ["grandchild", "child", "independent"],
       ["independent", "grandchild", "child"],
+      ["independent", "conflictFirst", "conflictSecond", "conflictChild", "grandchild", "child"],
     ] as const;
 
-    const snapshots = orderings.map((ordering) => {
+    const snapshots = orderings.slice(0, 3).map((ordering) => {
       const union = new LoreUnion();
       for (const name of ordering) union.union({ file: `${name}.lore`, bytes: lines[name] });
       const result = union.result();
@@ -294,6 +298,64 @@ describe("LORE-V0 line parser vectors", () => {
         { id: "child", missingParent: "missing-root" },
       ],
       acceptedLineIds: ["child", "grandchild", "independent"],
+    });
+
+    const conflictThenChildUnion = new LoreUnion();
+    for (const name of orderings[3]) conflictThenChildUnion.union({ file: `${name}.lore`, bytes: lines[name] });
+    const conflictThenChild = conflictThenChildUnion.result();
+    expect(conflictThenChild.conflictIds).toEqual(["conflicted-parent"]);
+    expect(conflictThenChild.unionEventIds).toEqual(["conflict-child", "independent"]);
+    expect(conflictThenChild.pending).toEqual([
+      { id: "grandchild", missingParent: "child", digest: expect.any(String), file: "grandchild.lore", line: 1, bytes: expect.any(Uint8Array) },
+      { id: "child", missingParent: "missing-root", digest: expect.any(String), file: "child.lore", line: 1, bytes: expect.any(Uint8Array) },
+    ]);
+    expect(conflictThenChild.graphDiagnostics).toEqual([
+      { class: "unavailable-due-to-conflict", id: "conflicted-parent" },
+    ]);
+  });
+
+  it("keeps children of newly conflicted parents view-eligible in streaming union", () => {
+    const lines = {
+      a1: `${eventBody({ id: "A", payload: { value: 1 } })}\n`,
+      a2: `${eventBody({ id: "A", payload: { value: 2 } })}\n`,
+      b: `${eventBody({ id: "B", parents: ["A"] })}\n`,
+    };
+    const batch = parseLoreFiles([
+      { file: "a1.lore", bytes: lines.a1 },
+      { file: "b.lore", bytes: lines.b },
+      { file: "a2.lore", bytes: lines.a2 },
+    ]);
+
+    const snapshots = [
+      ["a1", "b", "a2"],
+      ["a1", "a2", "b"],
+    ].map((ordering) => {
+      const union = new LoreUnion();
+      for (const name of ordering) union.union({ file: `${name}.lore`, bytes: lines[name as keyof typeof lines] });
+      const result = union.result();
+      return {
+        unionEventIds: result.unionEventIds,
+        conflictIds: result.conflictIds,
+        conflictVariantCount: result.conflictVariants.length,
+        pending: result.pending,
+        graphDiagnostics: result.graphDiagnostics,
+      };
+    });
+
+    expect(snapshots[0]).toEqual(snapshots[1]);
+    expect(snapshots[0]).toEqual({
+      unionEventIds: ["B"],
+      conflictIds: ["A"],
+      conflictVariantCount: 2,
+      pending: [],
+      graphDiagnostics: [{ class: "unavailable-due-to-conflict", id: "A" }],
+    });
+    expect(snapshots[0]).toEqual({
+      unionEventIds: batch.unionEventIds,
+      conflictIds: batch.conflictIds,
+      conflictVariantCount: batch.conflictVariants.length,
+      pending: batch.pending,
+      graphDiagnostics: batch.graphDiagnostics,
     });
   });
 
