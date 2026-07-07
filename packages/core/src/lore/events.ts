@@ -188,9 +188,14 @@ export class LoreUnion {
 
     this.acceptedById.delete(line.id!);
     this.conflictIds.add(line.id!);
-    const variants = [existing, line].map((variant) => this.markConflictVariant(variant));
+    const variants = new Map<string, LoreConflictVariant>();
+    for (const variantLine of this.lines.filter((variant) => variant.id === line.id! && isUnionCandidate(variant))) {
+      const variant = this.markConflictVariant(variantLine);
+      variants.set(`${variant.id}\0${variant.digest}`, variant);
+    }
     const drained = this.drain(line.id!);
-    return drained.length ? { status: "conflict", line, conflictVariants: variants, drained } : { status: "conflict", line, conflictVariants: variants };
+    const conflictVariants = [...variants.values()];
+    return drained.length ? { status: "conflict", line, conflictVariants, drained } : { status: "conflict", line, conflictVariants };
   }
 
   private markConflictVariant(line: LoreLineDiagnostic): LoreConflictVariant {

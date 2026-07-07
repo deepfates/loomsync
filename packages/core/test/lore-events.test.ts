@@ -383,6 +383,41 @@ describe("LORE-V0 line parser vectors", () => {
     );
   });
 
+  it("classifies duplicate sightings of conflicted ids like batch parse in every streaming order", () => {
+    const lines = {
+      t1: `${eventBody({ id: "A", payload: { t: 1 } })}\n`,
+      t1dup: `${eventBody({ id: "A", payload: { t: 1 } })}\n`,
+      t3: `${eventBody({ id: "A", payload: { t: 3 } })}\n`,
+    };
+    const orders = [
+      ["t1", "t1dup", "t3"],
+      ["t1", "t3", "t1dup"],
+      ["t3", "t1", "t1dup"],
+    ] as const;
+    const batch = parseLoreFiles([
+      { file: "t1.lore", bytes: lines.t1 },
+      { file: "t1dup.lore", bytes: lines.t1dup },
+      { file: "t3.lore", bytes: lines.t3 },
+    ]);
+    const batchClasses = batch.lines.map((line) => line.class);
+
+    expect(batchClasses).toEqual(["conflict-variant", "conflict-variant", "conflict-variant"]);
+
+    for (const order of orders) {
+      const union = new LoreUnion();
+      for (const name of order) union.union({ file: `${name}.lore`, bytes: lines[name] });
+      const result = union.result();
+
+      expect(result.lines.map((line) => line.class)).toEqual(batchClasses);
+      expect(result.conflictIds).toEqual(batch.conflictIds);
+      expect(result.unionEventIds).toEqual(batch.unionEventIds);
+      expect(result.viewEligibleIds).toEqual(batch.viewEligibleIds);
+      expect(result.conflictVariants.map((variant) => variant.digest)).toEqual(
+        batch.conflictVariants.map((variant) => variant.digest),
+      );
+    }
+  });
+
   it("does not let nonconforming critical events suppress payloads", () => {
     const target = eventBody({ id: "target", author: { actor: "alice" } });
     const critical = eventBody({
