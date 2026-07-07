@@ -45,6 +45,7 @@
     "@automerge/automerge-repo": "^2.5.5",
     "@automerge/automerge-repo-network-websocket": "^2.5.5",
     "@lync/core": "workspace:*",
-    "@lync/index": "workspace:*"
+    "@lync/index": "workspace:*",
+    "isomorphic-ws": "^5.0.0"
   }
 }

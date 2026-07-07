@@ -54,8 +54,15 @@ importers:
       '@lync/index':
         specifier: workspace:*
         version: link:../index
+      isomorphic-ws:
+        specifier: ^5.0.0
+        version: 5.0.0(ws@8.20.0)
 
-  packages/core: {}
+  packages/core:
+    dependencies:
+      '@automerge/automerge':
+        specifier: ^3.2.6
+        version: 3.2.6
 
   packages/index:
     dependencies:
