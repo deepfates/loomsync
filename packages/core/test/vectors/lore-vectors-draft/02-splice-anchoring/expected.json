@@ -1,0 +1,42 @@
+{
+  "fixture": "02-splice-anchoring",
+  "inputs": [
+    "input.lore"
+  ],
+  "line_classifications": [
+    {
+      "class": "accepted",
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000011",
+      "line": 1,
+      "reason": "payload marker-like bytes are not a splice"
+    },
+    {
+      "class": "accepted",
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000012",
+      "line": 2,
+      "reason": "reserved names inside payload are allowed"
+    },
+    {
+      "class": "garbage",
+      "file": "input.lore",
+      "line": 3,
+      "reason": "near-splice is body; parsed body contains reserved top-level digest"
+    },
+    {
+      "class": "garbage",
+      "file": "input.lore",
+      "line": 4,
+      "reason": "top-level digest in body is reserved"
+    }
+  ],
+  "union_event_ids": [
+    "018f0000-0000-7000-8000-000000000011",
+    "018f0000-0000-7000-8000-000000000012"
+  ],
+  "view_eligible_ids": [
+    "018f0000-0000-7000-8000-000000000011",
+    "018f0000-0000-7000-8000-000000000012"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "fixture": "11-nonconforming-carried",
+  "inputs": [
+    "input.lore"
+  ],
+  "line_classifications": [
+    {
+      "class": "nonconforming",
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000101",
+      "line": 1,
+      "reason": "unknown top-level field carried and surfaced"
+    },
+    {
+      "class": "nonconforming",
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000102",
+      "line": 2,
+      "reason": "unknown author field carried and surfaced"
+    }
+  ],
+  "union_event_ids": [
+    "018f0000-0000-7000-8000-000000000101",
+    "018f0000-0000-7000-8000-000000000102"
+  ],
+  "view_eligible_ids": [
+    "018f0000-0000-7000-8000-000000000101",
+    "018f0000-0000-7000-8000-000000000102"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "fixture": "04-garbage-classes",
+  "inputs": [
+    "input.lore"
+  ],
+  "line_classifications": [
+    {
+      "class": "garbage",
+      "file": "input.lore",
+      "line": 1,
+      "reason": "duplicate member name at nested object depth"
+    },
+    {
+      "class": "garbage",
+      "file": "input.lore",
+      "line": 2,
+      "reason": "bytes outside object: leading whitespace"
+    },
+    {
+      "class": "garbage",
+      "file": "input.lore",
+      "line": 3,
+      "reason": "kind lacks namespace/name slash"
+    },
+    {
+      "class": "garbage",
+      "file": "input.lore",
+      "line": 4,
+      "reason": "unimplemented v"
+    },
+    {
+      "class": "garbage",
+      "file": "input.lore",
+      "line": 5,
+      "reason": "empty line"
+    },
+    {
+      "class": "garbage",
+      "file": "input.lore",
+      "line": 6,
+      "reason": "CR before LF is trailing content"
+    },
+    {
+      "class": "accepted",
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000031",
+      "line": 7
+    }
+  ],
+  "union_event_ids": [
+    "018f0000-0000-7000-8000-000000000031"
+  ],
+  "view_eligible_ids": [
+    "018f0000-0000-7000-8000-000000000031"
+  ]
+}

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { dirname, basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   exportCarriedLoreBytes,
@@ -9,8 +10,7 @@ import {
   type LoreLineDiagnostic,
 } from "../src/lore/events.js";
 
-const vectorsRoot =
-  "/Users/deepfates/Hacking/github/deepfates/portfolio-audit-20260701/lore-vectors-draft";
+const vectorsRoot = join(dirname(fileURLToPath(import.meta.url)), "vectors", "lore-vectors-draft");
 
 interface ExpectedLine {
   file: string;
