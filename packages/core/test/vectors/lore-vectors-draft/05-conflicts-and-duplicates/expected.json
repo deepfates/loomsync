@@ -1,0 +1,66 @@
+{
+  "conflict_ids": [
+    "018f0000-0000-7000-8000-000000000042"
+  ],
+  "fixture": "05-conflicts-and-duplicates",
+  "inputs": [
+    "input.lore"
+  ],
+  "line_classifications": [
+    {
+      "class": "accepted",
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000041",
+      "line": 1
+    },
+    {
+      "class": "accepted",
+      "duplicate_sighting": true,
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000041",
+      "line": 2
+    },
+    {
+      "class": "accepted",
+      "duplicate_sighting": true,
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000041",
+      "line": 3,
+      "metadata_disagreement": true
+    },
+    {
+      "class": "conflict-variant",
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000042",
+      "line": 4
+    },
+    {
+      "class": "conflict-variant",
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000042",
+      "line": 5
+    },
+    {
+      "class": "accepted",
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000043",
+      "line": 6
+    },
+    {
+      "class": "accepted",
+      "duplicate_sighting": true,
+      "file": "input.lore",
+      "id": "018f0000-0000-7000-8000-000000000043",
+      "line": 7,
+      "metadata_disagreement": true
+    }
+  ],
+  "union_event_ids": [
+    "018f0000-0000-7000-8000-000000000041",
+    "018f0000-0000-7000-8000-000000000043"
+  ],
+  "view_eligible_ids": [
+    "018f0000-0000-7000-8000-000000000041",
+    "018f0000-0000-7000-8000-000000000043"
+  ]
+}
