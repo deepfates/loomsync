@@ -63,6 +63,11 @@
       "import": "./dist/lore/store.js",
       "default": "./dist/lore/store.js"
     },
+    "./lore/views": {
+      "types": "./dist/lore/views.d.ts",
+      "import": "./dist/lore/views.js",
+      "default": "./dist/lore/views.js"
+    },
     "./profiles/text-story": {
       "types": "./dist/profiles/text-story.d.ts",
       "import": "./dist/profiles/text-story.js",
