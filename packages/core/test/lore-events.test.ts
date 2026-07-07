@@ -244,4 +244,36 @@ describe("LORE-V0 line parser vectors", () => {
     expect(result.lines[0]?.bodyBytes && digestFor(result.lines[0].bodyBytes)).not.toBe(result.lines[0]?.digest);
     expect(Buffer.from(exportCarriedLoreBytes(result)).equals(bytes)).toBe(true);
   });
+
+  it("preserves structurally valid signatures without verifying them", () => {
+    const body = eventBody({ id: "signed-but-unverified" });
+    const sig = "QUJDRA==";
+    const input = `${body.slice(0, -1)},"digest":"${digestFor(Buffer.from(body))}","sig":"${sig}"}\n`;
+    const result = parseLoreFiles([{ file: "signed.lore", bytes: input }]);
+
+    expect(result.lines[0]?.class).toBe("accepted");
+    expect(result.lines[0]?.hasDigest).toBe(true);
+    expect(result.lines[0]?.hasSig).toBe(true);
+    expect(result.lines[0]?.sig).toBe(sig);
+    expect(Buffer.from(exportCarriedLoreBytes(result)).toString("utf8")).toBe(input);
+  });
+
+  it("treats invalid signature syntax as body instead of repairing the splice", () => {
+    const body = eventBody({ id: "invalid-signature-syntax" });
+    const digest = digestFor(Buffer.from(body));
+    const base = body.slice(0, -1);
+    const result = parseLoreFiles([
+      { file: "url.lore", bytes: `${base},"digest":"${digest}","sig":"abc-_"}\n` },
+      { file: "mod.lore", bytes: `${base},"digest":"${digest}","sig":"abc"}\n` },
+    ]);
+
+    expect(result.lines.map((line) => ({ class: line.class, hasDigest: line.hasDigest, hasSig: line.hasSig }))).toEqual([
+      { class: "garbage", hasDigest: undefined, hasSig: undefined },
+      { class: "garbage", hasDigest: undefined, hasSig: undefined },
+    ]);
+    expect(result.lines.map((line) => line.reason)).toEqual([
+      "reserved top-level digest/sig body member",
+      "reserved top-level digest/sig body member",
+    ]);
+  });
 });

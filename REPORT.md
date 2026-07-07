@@ -1,93 +1,71 @@
-# dee-8e4b Report
+# dee-2fpi Report
 
-Branch: `fold-up`
+Branch: `lore-verify`
 
 ## What Changed
 
-- Folded textile's vendored websocket sync adapter into `packages/client/src/sync.ts`.
-- Wired `createNodeLoomClient` through `createWebSocketSyncAdapter`, preserving `syncUrl` and adding `sync`/expanded `websocket` options plus sync status/auth type exports from `packages/client/src/node.ts`.
-- Folded the browser Automerge import delta into `packages/core/src/browser.ts` and added the direct `@automerge/automerge` package dependency for `@lync/core`.
-- Folded textile's sync-server hardening into `packages/sync-server/src/index.ts`: bounded shutdown, shutdown error tolerance, upgrade rejection responses, closing-state rejection, tracked upgrade sockets, and `maxConnections`.
-- Folded the grown node client and sync-server tests from textile.
-- Added the direct `isomorphic-ws` dependency to `@lync/client` because the new client sync module imports it.
-
-## Parity Checks
-
-Vendor files copied with exact source parity:
-
-```sh
-diff -u packages/client/src/sync.ts /Users/deepfates/Hacking/github/deepfates/textile/vendor/lync/packages/client/src/sync.ts
-diff -u packages/sync-server/src/index.ts /Users/deepfates/Hacking/github/deepfates/textile/vendor/lync/packages/sync-server/src/index.ts
-diff -u packages/client/test/node.test.ts /Users/deepfates/Hacking/github/deepfates/textile/vendor/lync/packages/client/test/node.test.ts
-diff -u packages/sync-server/test/sync-server.test.ts /Users/deepfates/Hacking/github/deepfates/textile/vendor/lync/packages/sync-server/test/sync-server.test.ts
-diff -u packages/core/src/browser.ts /Users/deepfates/Hacking/github/deepfates/textile/vendor/lync/packages/core/src/browser.ts
-```
-
-All returned no diff.
-
-`packages/client/src/node.ts` differs from textile only by de-vendored imports:
-
-```diff
--} from "@lync/core/automerge";
-+} from "../../core/src/automerge";
--} from "@lync/index/automerge";
-+} from "../../index/src/automerge";
-```
+- Added regression coverage for LORE-V0 digest/signature splice verification in `packages/core/test/lore-events.test.ts`.
+- Covered structurally valid standard-base64 signatures with matching digests: the base reader preserves and surfaces `sig`/`hasSig` without cryptographic verification.
+- Covered invalid signature splice syntax: base64url characters and length-mod-4 failures are treated as body bytes, so reserved top-level `digest`/`sig` classify as garbage instead of being repaired or dropped.
 
 ## Reproduce Commands
 
 ```sh
-git checkout fold-up
-pnpm install --offline
-pnpm exec vitest run packages/client/test/node.test.ts packages/client/test/browser.test.ts packages/core/test/automerge-browser.test.ts packages/sync-server/test/sync-server.test.ts
-pnpm test
-pnpm -r typecheck
-(cd /Users/deepfates/Hacking/github/deepfates/textile && bun test ./server ./client)
+git checkout lore-verify
+pnpm vitest run packages/core/test/lore-events.test.ts
+pnpm verify
+pnpm vitest run packages/client/test/node.test.ts
+pnpm typecheck
 ```
 
 ## Evidence
 
-`pnpm exec vitest run packages/client/test/node.test.ts packages/client/test/browser.test.ts packages/core/test/automerge-browser.test.ts packages/sync-server/test/sync-server.test.ts`
+`pnpm vitest run packages/core/test/lore-events.test.ts`
 
 ```text
-Test Files  4 passed (4)
+Test Files  1 passed (1)
 Tests  21 passed (21)
 ```
 
-`pnpm test`
+This includes the acceptance vectors 02, 03, 08, 12, and 13 through the existing vector loop, plus explicit signature-preservation and invalid-signature syntax regressions.
+
+`pnpm verify`
 
 ```text
-Test Files  12 passed (12)
-Tests  68 passed (68)
+Test Files  1 failed | 11 passed (12)
+Tests  1 failed | 69 passed (70)
+
+FAIL packages/client/test/node.test.ts > node loom client > keeps local loom operations alive when websocket sync is unavailable
+AssertionError: expected false to be true
+packages/client/test/node.test.ts:86
 ```
 
-`pnpm -r typecheck`
+`pnpm vitest run packages/client/test/node.test.ts`
 
 ```text
-packages/core typecheck: Done
-packages/sync-server typecheck: Done
-packages/index typecheck: Done
-packages/client typecheck: Done
+Test Files  1 failed (1)
+Tests  1 failed | 7 passed (8)
+
+FAIL packages/client/test/node.test.ts > node loom client > keeps local loom operations alive when websocket sync is unavailable
+AssertionError: expected false to be true
+packages/client/test/node.test.ts:86
 ```
 
-Textile suite:
+`pnpm typecheck`
 
 ```text
-bun test ./server ./client
-75 pass
-0 fail
-133 expect() calls
-Ran 75 tests across 11 files.
+packages/core build: src/lore/idb-log.ts(68,30): error TS2322: Type 'unknown[]' is not assignable to type 'StoreRecord[]'.
+packages/core build: src/lore/idb-log.ts(68,38): error TS2322: Type 'unknown[]' is not assignable to type 'ConflictRecord[]'.
+packages/core build: src/lore/idb-log.ts(68,49): error TS2322: Type 'unknown[]' is not assignable to type 'PendingRecord[]'.
 ```
 
-Note: the first sandboxed textile run failed one port-binding test with `Failed to start server. Is port 0 in use?`. Rerunning the same command outside the sandbox passed.
+## Notes
 
-## Not Folded
-
-- Generated build outputs, `node_modules`, tsbuildinfo files, and unrelated package/readme differences were not folded.
-- `textile/scripts/vendor-lync.sh` was not edited because textile is read-only for this task. The required fix is to change its default from `"$ROOT/../loomsync"` to `"$ROOT/../lync"` and keep the existing source marker check.
-- The textile repo had pre-existing local changes outside `vendor/lync`; I did not modify them.
+- The lore verification suite passes.
+- Full repo verification is blocked by out-of-scope client sync and storage/typecheck failures.
+- The worktree contains untracked storage files I did not create: `packages/core/src/lore/file-log.ts`, `idb-log.ts`, `looms.ts`, `memory-log.ts`, and `store.ts`. They are not included in this ticket commit.
 
 ## Tickets Filed
 
-None.
+- `dee-nqo7` - discovered persistent client sync test failure in `packages/client/test/node.test.ts`.
+- `dee-m2jm` - discovered storage `idb-log.ts` typecheck failure from out-of-scope concurrent storage files.
