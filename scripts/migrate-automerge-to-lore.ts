@@ -1,8 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Repo, type Chunk, type StorageAdapterInterface, type StorageKey } from "@automerge/automerge-repo";
+import { fileURLToPath } from "node:url";
+import {
+  Automerge,
+  initializeWasm,
+  type Chunk,
+  type DocumentId,
+  type StorageAdapterInterface,
+  type StorageKey,
+} from "@automerge/automerge-repo/slim";
 import { createLoreLooms } from "../packages/core/dist/lore/looms.js";
-import { createFileEventStore } from "../packages/core/dist/lore/file-log.js";
+import { BaseEventStore } from "../packages/core/dist/lore/store.js";
 import type { LoomSnapshot, Turn } from "../packages/core/dist/types.js";
 
 const ROOT_CHILDREN_KEY = "__root__";
@@ -19,6 +27,9 @@ interface MigrationFailure {
   reason: string;
   chunkBytes: number;
   chunkFiles: number;
+  chunks: string[];
+  beforeEvents?: number;
+  afterEvents?: number;
 }
 
 interface MigrationReport {
@@ -28,88 +39,108 @@ interface MigrationReport {
   loomsMigrated: number;
   beforeEvents: number;
   afterEvents: number;
+  docs: MigrationDocReport[];
   failures: MigrationFailure[];
 }
 
+interface MigrationDocReport {
+  docId: string;
+  beforeEvents: number;
+  afterEvents: number;
+  chunkBytes: number;
+  chunkFiles: number;
+}
+
 async function migrate(source: string, out: string): Promise<MigrationReport> {
+  await initializeAutomerge();
   await fs.mkdir(out, { recursive: true });
   const docIds = await listDocumentIds(source);
-  const store = createFileEventStore(out);
+  const store = new MigrationEventStore(out);
   const looms = createLoreLooms({
     store,
     author: { actor: "unknown", imported_by: "lync-automerge-migrator@0.1" },
   });
   const failures: MigrationFailure[] = [];
+  const docs: MigrationDocReport[] = [];
   let beforeEvents = 0;
+  let afterEvents = 0;
   let loomsMigrated = 0;
-
-  for (const docId of docIds) {
-    const stats = await chunkStats(source, docId);
-    try {
-      const doc = await loadDoc(source, docId, 500);
-      if (!isLoomDoc(doc)) continue;
-      const snapshot = snapshotFromDoc(doc);
-      beforeEvents += snapshot.turns.length + 1;
-      const imported = await looms.import(snapshot);
-      const lore = await looms.open(imported.id);
-      const migrated = await lore.export();
-      assertIsomorphic(snapshot, migrated);
-      loomsMigrated++;
-    } catch (error) {
-      failures.push({
-        docId,
-        reason: error instanceof Error ? error.message : String(error),
-        chunkBytes: stats.bytes,
-        chunkFiles: stats.files,
-      });
-    }
-  }
-
-  const diagnostics = await store.diagnostics?.();
-  const report: MigrationReport = {
+  let report: MigrationReport = {
     sourceDir: source,
     outDir: out,
     docsSeen: docIds.length,
     loomsMigrated,
     beforeEvents,
-    afterEvents: diagnostics?.events ?? 0,
+    afterEvents,
+    docs,
     failures,
   };
-  await fs.writeFile(path.join(out, "migration-report.json"), JSON.stringify(report, null, 2));
+  await writeReport(out, report);
+
+  for (const docId of docIds) {
+    const stats = await chunkStats(source, docId);
+    let docBeforeEvents: number | undefined;
+    let docAfterEvents: number | undefined;
+    try {
+      const doc = await loadDoc(source, docId);
+      if (!isLoomDoc(doc)) {
+        failures.push(failure(docId, "loaded Automerge doc is not loom-shaped", stats));
+        report = updateReport(report, { loomsMigrated, beforeEvents, afterEvents });
+        await writeReport(out, report);
+        continue;
+      }
+      docBeforeEvents = countLoomDocEvents(doc);
+      const snapshot = snapshotFromDoc(doc);
+      const imported = await looms.import(snapshot);
+      const lore = await looms.open(imported.id);
+      const migrated = await lore.export();
+      assertIsomorphic(snapshot, migrated);
+      docAfterEvents = countSnapshotEvents(migrated);
+      if (docBeforeEvents !== docAfterEvents) {
+        throw new Error(`event count mismatch: before=${docBeforeEvents} after=${docAfterEvents}`);
+      }
+      docs.push({
+        docId,
+        beforeEvents: docBeforeEvents,
+        afterEvents: docAfterEvents,
+        chunkBytes: stats.bytes,
+        chunkFiles: stats.files,
+      });
+      beforeEvents += docBeforeEvents;
+      afterEvents += docAfterEvents;
+      loomsMigrated++;
+      await store.flushRoot(rootId(imported.id));
+    } catch (error) {
+      failures.push(failure(docId, error instanceof Error ? error.message : String(error), stats, docBeforeEvents, docAfterEvents));
+    }
+    report = updateReport(report, { loomsMigrated, beforeEvents, afterEvents });
+    await writeReport(out, report);
+  }
+
   return report;
 }
 
-async function loadDoc(source: string, docId: string, timeoutMs: number): Promise<unknown> {
-  const repo = new Repo({ storage: new FileStorageAdapter(source), network: [] });
-  try {
-    return await withTimeout(
-      (async () => {
-        const handle = await repo.find(`automerge:${docId}` as never);
-        await handle.whenReady();
-        return handle.doc();
-      })(),
-      timeoutMs,
-      `timed out opening Automerge doc ${docId}`,
-    );
-  } finally {
-    repo.shutdown();
-  }
+async function initializeAutomerge(): Promise<void> {
+  const slimEntrypoint = fileURLToPath(import.meta.resolve("@automerge/automerge-repo/slim"));
+  const wasmPath = path.resolve(path.dirname(slimEntrypoint), "../../..", "automerge", "dist", "automerge.wasm");
+  await initializeWasm(await fs.readFile(wasmPath));
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error(message)), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timeout);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
+async function loadDoc(source: string, docId: string): Promise<unknown> {
+  const adapter = new FileStorageAdapter(source);
+  const binary = await loadDocData(adapter, docId);
+  if (!binary) throw new Error("no Automerge chunks found for document");
+  return Automerge.loadIncremental(Automerge.init(), binary);
+}
+
+async function loadDocData(adapter: StorageAdapterInterface, docId: string): Promise<Uint8Array | null> {
+  const chunks = [
+    ...(await adapter.loadRange([docId as DocumentId, "snapshot"])),
+    ...(await adapter.loadRange([docId as DocumentId, "incremental"])),
+  ];
+  const binaries = chunks.map((chunk) => chunk.data).filter((data): data is Uint8Array => data !== undefined);
+  if (binaries.length === 0) return null;
+  return mergeArrays(binaries);
 }
 
 function isLoomDoc(value: unknown): value is LoomDoc {
@@ -139,6 +170,14 @@ function snapshotFromDoc(doc: LoomDoc): LoomSnapshot<unknown, unknown, unknown> 
   return { loom: doc.root, turns };
 }
 
+function countLoomDocEvents(doc: LoomDoc): number {
+  return Object.keys(doc.nodes).length + 1;
+}
+
+function countSnapshotEvents(snapshot: LoomSnapshot<unknown, unknown, unknown>): number {
+  return snapshot.turns.length + 1;
+}
+
 function assertIsomorphic(
   before: LoomSnapshot<unknown, unknown, unknown>,
   after: LoomSnapshot<unknown, unknown, unknown>,
@@ -160,14 +199,87 @@ function assertIsomorphic(
 
 async function listDocumentIds(dir: string): Promise<string[]> {
   const files = await fs.readdir(dir);
-  return [...new Set(files.map((file) => file.split(".")[0]).filter(Boolean))].sort();
+  return [
+    ...new Set(
+      files
+        .map((file) => file.split("."))
+        .filter((parts) => parts[1] === "snapshot" || parts[1] === "incremental")
+        .map(([docId]) => docId)
+        .filter(Boolean),
+    ),
+  ].sort();
 }
 
-async function chunkStats(dir: string, docId: string): Promise<{ bytes: number; files: number }> {
-  const files = (await fs.readdir(dir)).filter((file) => file.startsWith(`${docId}.`));
+async function chunkStats(dir: string, docId: string): Promise<{ bytes: number; files: number; chunks: string[] }> {
+  const files = (await fs.readdir(dir)).filter((file) => file.startsWith(`${docId}.`)).sort();
   let bytes = 0;
   for (const file of files) bytes += (await fs.stat(path.join(dir, file))).size;
-  return { bytes, files: files.length };
+  return { bytes, files: files.length, chunks: files.map((file) => path.join(dir, file)) };
+}
+
+function failure(
+  docId: string,
+  reason: string,
+  stats: { bytes: number; files: number; chunks: string[] },
+  beforeEvents?: number,
+  afterEvents?: number,
+): MigrationFailure {
+  return {
+    docId,
+    reason,
+    chunkBytes: stats.bytes,
+    chunkFiles: stats.files,
+    chunks: stats.chunks,
+    ...(beforeEvents === undefined ? {} : { beforeEvents }),
+    ...(afterEvents === undefined ? {} : { afterEvents }),
+  };
+}
+
+function updateReport(
+  report: MigrationReport,
+  counts: Pick<MigrationReport, "loomsMigrated" | "beforeEvents" | "afterEvents">,
+): MigrationReport {
+  return {
+    ...report,
+    ...counts,
+  };
+}
+
+async function writeReport(out: string, report: MigrationReport): Promise<void> {
+  const reportPath = path.join(out, "migration-report.json");
+  const tmpPath = `${reportPath}.tmp`;
+  await fs.writeFile(tmpPath, JSON.stringify(report, null, 2));
+  await fs.rename(tmpPath, reportPath);
+}
+
+function mergeArrays(arrays: Uint8Array[]): Uint8Array {
+  const size = arrays.reduce((total, array) => total + array.length, 0);
+  const merged = new Uint8Array(size);
+  let offset = 0;
+  for (const array of arrays) {
+    merged.set(array, offset);
+    offset += array.length;
+  }
+  return merged;
+}
+
+function rootId(loomId: string): string {
+  if (!loomId.startsWith("lore:")) throw new Error(`expected imported lore loom id, got ${loomId}`);
+  return loomId.slice("lore:".length);
+}
+
+class MigrationEventStore extends BaseEventStore {
+  private readonly dir: string;
+
+  constructor(dir: string) {
+    super();
+    this.dir = dir;
+  }
+
+  async flushRoot(root: string): Promise<void> {
+    await fs.mkdir(this.dir, { recursive: true });
+    await fs.writeFile(path.join(this.dir, `${encodeURIComponent(root)}.lore`), await this.exportRootBytes(root));
+  }
 }
 
 class FileStorageAdapter implements StorageAdapterInterface {
