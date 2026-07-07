@@ -127,7 +127,6 @@ export class LoreUnion {
   private readonly pendingLimit: number;
   private readonly lines: LoreLineDiagnostic[] = [];
   private readonly acceptedById = new Map<string, LoreLineDiagnostic>();
-  private readonly knownIds = new Set<string>();
   private readonly conflictIds = new Set<string>();
   private readonly conflictVariants = new Map<string, LoreConflictVariant>();
   private readonly pendingByParent = new Map<string, LoreLineDiagnostic[]>();
@@ -157,8 +156,7 @@ export class LoreUnion {
     if (line.class === "garbage") return { status: "garbage", line };
     if (!isUnionCandidate(line)) return { status: "garbage", line };
 
-    this.knownIds.add(line.id);
-    const missingParent = firstMissingParent(line, this.acceptedById, this.knownIds);
+    const missingParent = firstMissingParent(line, this.acceptedById);
     if (missingParent) {
       this.bufferPending(missingParent, line);
       return { status: "buffered", line, missingParent };
@@ -169,6 +167,10 @@ export class LoreUnion {
 
   private acceptLine(line: LoreLineDiagnostic): LoreUnionIngestResult {
     const existing = this.acceptedById.get(line.id!);
+    if (this.conflictIds.has(line.id!)) {
+      return { status: "conflict", line, conflictVariants: [this.markConflictVariant(line)] };
+    }
+
     if (!existing) {
       this.acceptedById.set(line.id!, line);
       const drained = this.drain(line.id!);
@@ -204,6 +206,7 @@ export class LoreUnion {
     bucket.push(line);
     this.pendingByParent.set(missingParent, bucket);
     this.pendingCount++;
+    // In-memory union keeps pending diagnostics even past this limit; durable bounds belong to the storage layer.
     if (this.pendingCount > this.pendingLimit) this.pendingOverflowCount++;
   }
 
@@ -515,11 +518,10 @@ function conflictVariantFor(line: LoreLineDiagnostic): LoreConflictVariant {
 function firstMissingParent(
   line: LoreLineDiagnostic & { event: LoreEventBody },
   acceptedById: Map<string, LoreLineDiagnostic>,
-  knownIds: Set<string>,
 ): string | undefined {
   const parent = line.event.parents[0];
   if (!parent) return undefined;
-  if (acceptedById.has(parent) || knownIds.has(parent)) return undefined;
+  if (acceptedById.has(parent)) return undefined;
   return parent;
 }
 

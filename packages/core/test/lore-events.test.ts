@@ -259,6 +259,68 @@ describe("LORE-V0 line parser vectors", () => {
     });
   });
 
+  it("keeps streaming union result commutative when parents are only buffered", () => {
+    const lines = {
+      child: `${eventBody({ id: "child", parents: ["missing-root"] })}\n`,
+      grandchild: `${eventBody({ id: "grandchild", parents: ["child"] })}\n`,
+      independent: `${eventBody({ id: "independent" })}\n`,
+    };
+    const orderings = [
+      ["child", "grandchild", "independent"],
+      ["grandchild", "child", "independent"],
+      ["independent", "grandchild", "child"],
+    ] as const;
+
+    const snapshots = orderings.map((ordering) => {
+      const union = new LoreUnion();
+      for (const name of ordering) union.union({ file: `${name}.lore`, bytes: lines[name] });
+      const result = union.result();
+      return {
+        unionEventIds: result.unionEventIds,
+        pending: result.pending.map((line) => ({ id: line.id, missingParent: line.missingParent })),
+        acceptedLineIds: result.lines
+          .filter((line) => line.class === "accepted" || line.class === "nonconforming")
+          .map((line) => line.id)
+          .sort(),
+      };
+    });
+
+    expect(snapshots[1]).toEqual(snapshots[0]);
+    expect(snapshots[2]).toEqual(snapshots[0]);
+    expect(snapshots[0]).toEqual({
+      unionEventIds: ["independent"],
+      pending: [
+        { id: "grandchild", missingParent: "child" },
+        { id: "child", missingParent: "missing-root" },
+      ],
+      acceptedLineIds: ["child", "grandchild", "independent"],
+    });
+  });
+
+  it("records every streaming same-id different-body conflict variant after the first conflict", () => {
+    const union = new LoreUnion();
+    const first = `${eventBody({ id: "same", payload: { text: "first" } })}\n`;
+    const second = `${eventBody({ id: "same", payload: { text: "second" } })}\n`;
+    const third = `${eventBody({ id: "same", payload: { text: "third" } })}\n`;
+
+    expect(union.union({ file: "a.lore", bytes: first })[0]?.status).toBe("added");
+    expect(union.union({ file: "b.lore", bytes: second })[0]?.status).toBe("conflict");
+    expect(union.union({ file: "c.lore", bytes: third })[0]?.status).toBe("conflict");
+
+    const result = union.result();
+    expect(result.lines.map((line) => line.class)).toEqual([
+      "conflict-variant",
+      "conflict-variant",
+      "conflict-variant",
+    ]);
+    expect(result.conflictIds).toEqual(["same"]);
+    expect(result.unionEventIds).toEqual([]);
+    expect(result.viewEligibleIds).toEqual([]);
+    expect(result.conflictVariants.map((variant) => variant.digest)).toEqual(
+      [first, second, third].map((line) => createHash("sha256").update(line.trimEnd()).digest("hex")).sort(),
+    );
+  });
+
   it("does not let nonconforming critical events suppress payloads", () => {
     const target = eventBody({ id: "target", author: { actor: "alice" } });
     const critical = eventBody({
