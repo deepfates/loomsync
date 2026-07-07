@@ -229,20 +229,17 @@ function parseLine(raw: { file: string; line: number; bytes: Uint8Array; termina
 }
 
 function splitSplice(bytes: Uint8Array): { bodyBytes: Uint8Array; digest?: string; sig?: string } {
-  let text: string;
-  try {
-    text = decodeUtf8(bytes);
-  } catch {
-    return { bodyBytes: bytes };
-  }
+  const text = Buffer.from(bytes).toString("latin1");
   const match = text.match(/,"digest":"(sha256:[0-9a-f]{64})"(?:,"sig":"([A-Za-z0-9+/]+={0,2})")?}$/);
   if (!match) return { bodyBytes: bytes };
   const sig = match[2];
   if (sig !== undefined && (sig.length === 0 || sig.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(sig) || /=.+[^=]/.test(sig))) {
     return { bodyBytes: bytes };
   }
-  const prefix = text.slice(0, match.index);
-  return { bodyBytes: textEncoder.encode(`${prefix}}`), digest: match[1], sig };
+  const bodyBytes = new Uint8Array(match.index! + 1);
+  bodyBytes.set(bytes.slice(0, match.index));
+  bodyBytes[bodyBytes.byteLength - 1] = 0x7d;
+  return { bodyBytes, digest: match[1], sig };
 }
 
 function markConflicts(lines: LoreLineDiagnostic[]): void {
@@ -317,7 +314,7 @@ function computeSuppression(acceptedById: Map<string, LoreLineDiagnostic>, confl
   const eventIds = new Set([...acceptedById.keys()].filter((id) => !conflictIds.has(id)));
   for (const line of acceptedById.values()) {
     const event = line.event;
-    if (!event || event.critical !== true || conflictIds.has(event.id)) continue;
+    if (line.class !== "accepted" || !event || event.critical !== true || conflictIds.has(event.id)) continue;
     const authorNames = names(event);
     for (const parent of event.parents) {
       const target = acceptedById.get(parent)?.event;

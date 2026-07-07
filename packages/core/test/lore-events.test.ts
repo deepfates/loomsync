@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -54,6 +55,31 @@ function loadFixture(name: string) {
     })),
   );
   return { dir, expected, result };
+}
+
+function eventBody(fields: {
+  id: string;
+  kind?: string;
+  at?: string;
+  author?: Record<string, unknown>;
+  parents?: string[];
+  payload?: Record<string, unknown>;
+  extra?: Record<string, unknown>;
+}) {
+  return JSON.stringify({
+    v: 1,
+    id: fields.id,
+    kind: fields.kind ?? "hostile/event",
+    at: fields.at ?? "2026-07-07T00:00:00Z",
+    author: fields.author ?? { actor: "alice" },
+    parents: fields.parents ?? [],
+    payload: fields.payload ?? {},
+    ...fields.extra,
+  });
+}
+
+function digestFor(bytes: Uint8Array) {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
 function simplifyLine(line: LoreLineDiagnostic): ExpectedLine {
@@ -179,5 +205,43 @@ describe("LORE-V0 line parser vectors", () => {
       "b.lore",
       "b.lore",
     ]);
+  });
+
+  it("does not let nonconforming critical events suppress payloads", () => {
+    const target = eventBody({ id: "target", author: { actor: "alice" } });
+    const critical = eventBody({
+      id: "crit-nonconforming",
+      author: { actor: "alice" },
+      parents: ["target"],
+      extra: { critical: true, future: "unknown-top-level" },
+    });
+    const input = `${target}\n${critical}\n`;
+    const result = parseLoreFiles([{ file: "hostile.lore", bytes: input }]);
+
+    expect(result.lines.map((line) => ({ class: line.class, id: line.id }))).toEqual([
+      { class: "accepted", id: "target" },
+      { class: "nonconforming", id: "crit-nonconforming" },
+    ]);
+    expect(result.suppression.suppressedPayloadIds).toEqual([]);
+    expect(result.suppression.notSuppressedIds).toEqual(["crit-nonconforming", "target"]);
+    expect(Buffer.from(exportCarriedLoreBytes(result)).toString("utf8")).toBe(input);
+  });
+
+  it("detects digest splice before decoding invalid UTF-8", () => {
+    const prefix = Buffer.from(
+      '{"v":1,"id":"bad-utf8","kind":"hostile/event","at":"2026-07-07T00:00:00Z","author":{"actor":"alice"},"parents":[],"payload":{"x":"',
+    );
+    const invalid = Buffer.from([0xff]);
+    const suffix = Buffer.from(
+      '"},"digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}\n',
+    );
+    const bytes = Buffer.concat([prefix, invalid, suffix]);
+    const result = parseLoreFiles([{ file: "raw.lore", bytes }]);
+
+    expect(result.lines[0]?.class).toBe("damaged");
+    expect(result.lines[0]?.reason).toBe("sha256 mismatch");
+    expect(result.lines[0]?.digest).toBe("sha256:0000000000000000000000000000000000000000000000000000000000000000");
+    expect(result.lines[0]?.bodyBytes && digestFor(result.lines[0].bodyBytes)).not.toBe(result.lines[0]?.digest);
+    expect(Buffer.from(exportCarriedLoreBytes(result)).equals(bytes)).toBe(true);
   });
 });
