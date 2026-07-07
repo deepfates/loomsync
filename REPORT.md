@@ -1,24 +1,22 @@
-# dee-ievy Report
+# dee-rqc1 Report
 
-Branch: `lore-rung1`
+Branch: `lore-union`
 
 ## What Changed
 
-- Added `packages/core/src/lore/events.ts`, a LORE-V0 Part I line reader and union classifier.
-- Exported the parser from `@lync/core` and the subpath `@lync/core/lore/events`.
-- Added vector-driven tests that consume all 13 fixture directories directly from `portfolio-audit-20260701/lore-vectors-draft`.
-- Added explicit tests for unknown-field carry/surfacing, duplicate decoded JSON member names as garbage, and byte-preserving export of garbage/damaged lines.
-- Fixed bounce finding 1: only `accepted` critical events can trigger payload suppression; nonconforming critical events are still carried and surfaced but have no suppression power.
-- Fixed bounce finding 2: digest/sig splice detection now runs on raw line bytes before UTF-8 decoding, so digest mismatch classification wins even when invalid UTF-8 appears in the body bytes.
-- Folded the reviewer’s hostile probes into permanent regression tests for nonconforming critical suppression and raw-byte-first digest classification.
-- Added a README usage section for parsing lorefiles.
+- Extended `packages/core/src/lore/events.ts` so union diagnostics carry computed body SHA-256 digests and explicit same-id conflict variants keyed by `(id, digest)`.
+- Kept same-id/same-body events as one view event while retaining duplicate line diagnostics and preferring richer duplicate metadata (`sig` over digest-only, digest over bare).
+- Added `LoreUnion`, an incremental union accumulator that buffers arrivals whose `parents[0]` is absent, surfaces pending overflow via `pendingOverflowCount`, and drains pending children in cascade when parents arrive.
+- Preserved vector 10 behavior: `a.lore + b.lore` unions IDs 091, 092, 093; surfaces ID 094 as two conflict variants; excludes conflicts from normal views/downsets.
+- Added regression tests for same-id/different-body exclusion and out-of-order pending cascade.
 
 ## Reproduce Commands
 
 ```sh
-git checkout lore-rung1
+git checkout lore-union
 pnpm test -- packages/core/test/lore-events.test.ts
-pnpm verify
+pnpm test
+pnpm typecheck
 ```
 
 ## Evidence Output
@@ -26,31 +24,39 @@ pnpm verify
 `pnpm test -- packages/core/test/lore-events.test.ts`
 
 ```text
-✓ packages/core/test/lore-events.test.ts (19 tests) 18ms
+✓ packages/core/test/lore-events.test.ts (21 tests) 27ms
 
 Test Files  1 passed (1)
-Tests  19 passed (19)
+Tests  21 passed (21)
 ```
 
-`pnpm verify`
+`pnpm test`
 
 ```text
-✓ packages/core/test/lore-events.test.ts (19 tests) 28ms
-✓ packages/core/test/text-story-profile.test.ts (3 tests) 8ms
-✓ packages/core/test/memory.test.ts (6 tests) 9ms
-✓ packages/client/test/testing.test.ts (2 tests) 8ms
-✓ packages/sync-server/test/sync-server.test.ts (6 tests) 109ms
-✓ packages/index/test/automerge.test.ts (4 tests) 148ms
-✓ packages/core/test/automerge.test.ts (5 tests) 178ms
-✓ packages/client/test/browser.test.ts (3 tests) 128ms
-✓ packages/client/test/node.test.ts (2 tests) 186ms
-✓ packages/core/test/references.test.ts (3 tests) 20ms
-✓ packages/index/test/memory.test.ts (5 tests) 10ms
+✓ packages/core/test/lore-events.test.ts (21 tests) 59ms
+✓ packages/core/test/memory.test.ts (6 tests) 14ms
+✓ packages/index/test/memory.test.ts (5 tests) 7ms
+✓ packages/client/test/testing.test.ts (2 tests) 7ms
+✓ packages/index/test/automerge.test.ts (4 tests) 220ms
+✓ packages/core/test/automerge.test.ts (5 tests) 305ms
+✓ packages/sync-server/test/sync-server.test.ts (7 tests) 247ms
+✓ packages/client/test/browser.test.ts (3 tests) 196ms
+✓ packages/core/test/text-story-profile.test.ts (3 tests) 7ms
+✓ packages/core/test/references.test.ts (3 tests) 9ms
+✓ packages/client/test/node.test.ts (8 tests) 802ms
 ✓ packages/core/test/automerge-browser.test.ts (3 tests) 5ms
 
 Test Files  12 passed (12)
-Tests  61 passed (61)
+Tests  70 passed (70)
+```
 
+`pnpm typecheck`
+
+```text
+packages/core build: Done
+packages/sync-server build: Done
+packages/index build: Done
+packages/client build: Done
 packages/core typecheck: Done
 packages/sync-server typecheck: Done
 packages/index typecheck: Done
@@ -59,7 +65,8 @@ packages/client typecheck: Done
 
 ## Uncertainty
 
-- The parser/classifier is implemented for Part I and fixture coverage. It does not yet implement the full `createLoreLooms` backend from later design sections.
+- `LoreUnion` is an in-memory accumulator over the parser module, not the full durable `EventStore`/IndexedDB pending store from the backend design. It exposes pending overflow loudly and never drops pending diagnostics in this layer.
+- The worktree contains unrelated pre-existing edits in client/sync-server/package files. This ticket only changed lore parser/test files plus this report.
 
 ## Tickets Filed
 

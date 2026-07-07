@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   exportCarriedLoreBytes,
+  LoreUnion,
   loreDownset,
   parseLoreFiles,
   type LoreLineDiagnostic,
@@ -205,6 +206,57 @@ describe("LORE-V0 line parser vectors", () => {
       "b.lore",
       "b.lore",
     ]);
+    expect(result.conflictVariants).toHaveLength(2);
+    expect(result.conflictVariants.map((variant) => `${variant.id}:${variant.digest}`)).toEqual([
+      "018f0000-0000-7000-8000-000000000094:608a33dee8afdf84ce8ac2fa7306d494c18690f122c69236a7865ab1014a227b",
+      "018f0000-0000-7000-8000-000000000094:f55b52407b5226b217dc43ab1aa3a513b05ba567ca4bfc7999e6bc9a27ce438d",
+    ]);
+  });
+
+  it("surfaces same-id different body variants and excludes them from normal views", () => {
+    const first = `${eventBody({ id: "same", payload: { text: "first" } })}\n`;
+    const second = `${eventBody({ id: "same", payload: { text: "second" } })}\n`;
+    const result = parseLoreFiles([
+      { file: "a.lore", bytes: first },
+      { file: "b.lore", bytes: second },
+    ]);
+
+    expect(result.lines.map((line) => line.class)).toEqual(["conflict-variant", "conflict-variant"]);
+    expect(result.conflictIds).toEqual(["same"]);
+    expect(result.unionEventIds).toEqual([]);
+    expect(result.viewEligibleIds).toEqual([]);
+    expect(result.conflictVariants.map((variant) => variant.digest)).toEqual([
+      createHash("sha256").update(eventBody({ id: "same", payload: { text: "second" } })).digest("hex"),
+      createHash("sha256").update(eventBody({ id: "same", payload: { text: "first" } })).digest("hex"),
+    ]);
+  });
+
+  it("buffers missing first-parent arrivals and drains pending children in cascade", () => {
+    const union = new LoreUnion({ pendingLimit: 1 });
+    const grandchild = `${eventBody({ id: "grandchild", parents: ["child"] })}\n`;
+    const child = `${eventBody({ id: "child", parents: ["root"] })}\n`;
+    const root = `${eventBody({ id: "root" })}\n`;
+
+    const first = union.union({ file: "grandchild.lore", bytes: grandchild });
+    const second = union.union({ file: "child.lore", bytes: child });
+    expect(first[0]?.status).toBe("buffered");
+    expect(second[0]?.status).toBe("buffered");
+    expect(union.result().pending.map((line) => line.id).sort()).toEqual(["child", "grandchild"]);
+    expect(union.result().pendingOverflowCount).toBe(1);
+
+    const third = union.union({ file: "root.lore", bytes: root });
+    expect(third[0]?.status).toBe("added");
+    expect(third[0]?.drained?.map((result) => result.status)).toEqual(["added"]);
+    expect(third[0]?.drained?.[0]?.drained?.map((result) => result.status)).toEqual(["added"]);
+
+    const result = union.result();
+    expect(result.pending).toEqual([]);
+    expect(result.unionEventIds).toEqual(["child", "grandchild", "root"]);
+    expect(loreDownset(result, "grandchild")).toEqual({
+      ids: ["child", "grandchild", "root"],
+      partial: false,
+      obstacles: [],
+    });
   });
 
   it("does not let nonconforming critical events suppress payloads", () => {

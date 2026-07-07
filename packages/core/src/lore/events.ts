@@ -34,9 +34,29 @@ export interface LoreLineDiagnostic {
   bytes: Uint8Array;
   terminator: "" | "\n";
   bodyBytes?: Uint8Array;
+  bodyDigest?: string;
   digest?: string;
   sig?: string;
   nonconformingReasons?: string[];
+}
+
+export interface LoreConflictVariant {
+  id: string;
+  digest: string;
+  file: string;
+  line: number;
+  bytes: Uint8Array;
+  bodyBytes: Uint8Array;
+  event: LoreEventBody;
+}
+
+export interface LorePendingDiagnostic {
+  missingParent: string;
+  digest: string;
+  file: string;
+  line: number;
+  id: string;
+  bytes: Uint8Array;
 }
 
 export interface LoreObstacle {
@@ -51,6 +71,9 @@ export interface LoreParseResult {
   unionEventIds: string[];
   viewEligibleIds: string[];
   conflictIds: string[];
+  conflictVariants: LoreConflictVariant[];
+  pending: LorePendingDiagnostic[];
+  pendingOverflowCount: number;
   suppression: {
     suppressedPayloadIds: string[];
     notSuppressedIds: string[];
@@ -80,33 +103,140 @@ const authorFields = new Set(["actor", "operator", "via", "imported_by", "source
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
 const textEncoder = new TextEncoder();
 
+export type LoreUnionStatus =
+  | "added"
+  | "duplicate"
+  | "conflict"
+  | "buffered"
+  | "damaged"
+  | "garbage";
+
+export interface LoreUnionIngestResult {
+  status: LoreUnionStatus;
+  line: LoreLineDiagnostic;
+  conflictVariants?: LoreConflictVariant[];
+  missingParent?: string;
+  drained?: LoreUnionIngestResult[];
+}
+
+export interface LoreUnionOptions {
+  pendingLimit?: number;
+}
+
+export class LoreUnion {
+  private readonly pendingLimit: number;
+  private readonly lines: LoreLineDiagnostic[] = [];
+  private readonly acceptedById = new Map<string, LoreLineDiagnostic>();
+  private readonly knownIds = new Set<string>();
+  private readonly conflictIds = new Set<string>();
+  private readonly conflictVariants = new Map<string, LoreConflictVariant>();
+  private readonly pendingByParent = new Map<string, LoreLineDiagnostic[]>();
+  private pendingCount = 0;
+  private pendingOverflowCount = 0;
+
+  constructor(options: LoreUnionOptions = {}) {
+    this.pendingLimit = options.pendingLimit ?? 1024;
+  }
+
+  union(input: { file: string; bytes: Uint8Array | string }): LoreUnionIngestResult[] {
+    const results: LoreUnionIngestResult[] = [];
+    for (const raw of parsePhysicalLines(input.file, input.bytes)) {
+      const line = parseLine(raw);
+      this.lines.push(line);
+      results.push(this.ingestParsedLine(line));
+    }
+    return results;
+  }
+
+  result(): LoreParseResult {
+    return buildResult(this.lines, this.acceptedById, this.conflictIds, [...this.conflictVariants.values()], this.pending(), this.pendingOverflowCount);
+  }
+
+  private ingestParsedLine(line: LoreLineDiagnostic): LoreUnionIngestResult {
+    if (line.class === "damaged") return { status: "damaged", line };
+    if (line.class === "garbage") return { status: "garbage", line };
+    if (!isUnionCandidate(line)) return { status: "garbage", line };
+
+    this.knownIds.add(line.id);
+    const missingParent = firstMissingParent(line, this.acceptedById, this.knownIds);
+    if (missingParent) {
+      this.bufferPending(missingParent, line);
+      return { status: "buffered", line, missingParent };
+    }
+
+    return this.acceptLine(line);
+  }
+
+  private acceptLine(line: LoreLineDiagnostic): LoreUnionIngestResult {
+    const existing = this.acceptedById.get(line.id!);
+    if (!existing) {
+      this.acceptedById.set(line.id!, line);
+      const drained = this.drain(line.id!);
+      return drained.length ? { status: "added", line, drained } : { status: "added", line };
+    }
+
+    if (sameBody(existing, line)) {
+      line.duplicateSighting = true;
+      if ((line.digest ?? "") !== (existing.digest ?? "") || (line.sig ?? "") !== (existing.sig ?? "")) {
+        line.metadataDisagreement = true;
+      }
+      if (isRicherLine(line, existing)) this.acceptedById.set(line.id!, line);
+      return { status: "duplicate", line };
+    }
+
+    this.acceptedById.delete(line.id!);
+    this.conflictIds.add(line.id!);
+    const variants = [existing, line].map((variant) => this.markConflictVariant(variant));
+    const drained = this.drain(line.id!);
+    return drained.length ? { status: "conflict", line, conflictVariants: variants, drained } : { status: "conflict", line, conflictVariants: variants };
+  }
+
+  private markConflictVariant(line: LoreLineDiagnostic): LoreConflictVariant {
+    line.class = "conflict-variant";
+    line.reason = "same id with different body bytes";
+    const variant = conflictVariantFor(line);
+    this.conflictVariants.set(`${variant.id}\0${variant.digest}`, variant);
+    return variant;
+  }
+
+  private bufferPending(missingParent: string, line: LoreLineDiagnostic): void {
+    const bucket = this.pendingByParent.get(missingParent) ?? [];
+    bucket.push(line);
+    this.pendingByParent.set(missingParent, bucket);
+    this.pendingCount++;
+    if (this.pendingCount > this.pendingLimit) this.pendingOverflowCount++;
+  }
+
+  private drain(parent: string): LoreUnionIngestResult[] {
+    const bucket = this.pendingByParent.get(parent);
+    if (!bucket) return [];
+    this.pendingByParent.delete(parent);
+    this.pendingCount -= bucket.length;
+    const results: LoreUnionIngestResult[] = [];
+    for (const line of bucket) results.push(this.ingestParsedLine(line));
+    return results;
+  }
+
+  private pending(): LorePendingDiagnostic[] {
+    return [...this.pendingByParent.entries()].flatMap(([missingParent, lines]) =>
+      lines.map((line) => ({
+        missingParent,
+        digest: line.bodyDigest!,
+        file: line.file,
+        line: line.line,
+        id: line.id!,
+        bytes: line.bytes,
+      })),
+    );
+  }
+}
+
 export function parseLoreFiles(
   inputs: { file: string; bytes: Uint8Array | string }[],
 ): LoreParseResult {
   const lines = inputs.flatMap((input) => parsePhysicalLines(input.file, input.bytes).map(parseLine));
-  markConflicts(lines);
-
-  const acceptedById = new Map<string, LoreLineDiagnostic>();
-  const conflictIds = new Set<string>();
-  for (const line of lines) {
-    if (line.class === "conflict-variant" && line.id) conflictIds.add(line.id);
-    if ((line.class === "accepted" || line.class === "nonconforming") && line.id) {
-      acceptedById.set(line.id, line);
-    }
-  }
-
-  const viewEligibleIds = [...acceptedById.keys()].filter((id) => !conflictIds.has(id)).sort();
-  const graphDiagnostics = graphObstacles(acceptedById, conflictIds);
-  const suppression = computeSuppression(acceptedById, conflictIds);
-
-  return {
-    lines,
-    unionEventIds: viewEligibleIds,
-    viewEligibleIds,
-    conflictIds: [...conflictIds].sort(),
-    suppression,
-    graphDiagnostics,
-  };
+  const { acceptedById, conflictIds, conflictVariants } = markConflicts(lines);
+  return buildResult(lines, acceptedById, conflictIds, conflictVariants, [], 0);
 }
 
 export function exportCarriedLoreBytes(result: LoreParseResult): Uint8Array {
@@ -196,19 +326,19 @@ function parseLine(raw: { file: string; line: number; bytes: Uint8Array; termina
   const base = { file: raw.file, line: raw.line, bytes: raw.bytes, terminator: raw.terminator } as const;
   const spliced = splitSplice(raw.bytes);
   if (spliced.digest && sha256Hex(spliced.bodyBytes) !== spliced.digest.slice("sha256:".length)) {
-    return { ...base, class: "damaged", reason: "sha256 mismatch", bodyBytes: spliced.bodyBytes, digest: spliced.digest, sig: spliced.sig };
+    return { ...base, class: "damaged", reason: "sha256 mismatch", bodyBytes: spliced.bodyBytes, bodyDigest: sha256Hex(spliced.bodyBytes), digest: spliced.digest, sig: spliced.sig };
   }
 
   let parsed: JsonParsed;
   try {
     parsed = parseJsonNoDuplicateKeys(decodeUtf8(spliced.bodyBytes));
   } catch (error) {
-    return { ...base, class: "garbage", reason: errorMessage(error), bodyBytes: spliced.bodyBytes, digest: spliced.digest, sig: spliced.sig };
+    return { ...base, class: "garbage", reason: errorMessage(error), bodyBytes: spliced.bodyBytes, bodyDigest: sha256Hex(spliced.bodyBytes), digest: spliced.digest, sig: spliced.sig };
   }
 
   const checked = validateEnvelope(parsed.value);
   if (!checked.ok) {
-    return { ...base, class: "garbage", reason: checked.reason, bodyBytes: spliced.bodyBytes, digest: spliced.digest, sig: spliced.sig };
+    return { ...base, class: "garbage", reason: checked.reason, bodyBytes: spliced.bodyBytes, bodyDigest: sha256Hex(spliced.bodyBytes), digest: spliced.digest, sig: spliced.sig };
   }
 
   const nonconformingReasons = checked.nonconforming;
@@ -220,6 +350,7 @@ function parseLine(raw: { file: string; line: number; bytes: Uint8Array; termina
     id: checked.event.id,
     event: checked.event,
     bodyBytes: spliced.bodyBytes,
+    bodyDigest: sha256Hex(spliced.bodyBytes),
     digest: spliced.digest,
     sig: spliced.sig,
     hasDigest: Boolean(spliced.digest),
@@ -242,31 +373,45 @@ function splitSplice(bytes: Uint8Array): { bodyBytes: Uint8Array; digest?: strin
   return { bodyBytes, digest: match[1], sig };
 }
 
-function markConflicts(lines: LoreLineDiagnostic[]): void {
+function markConflicts(lines: LoreLineDiagnostic[]): {
+  acceptedById: Map<string, LoreLineDiagnostic>;
+  conflictIds: Set<string>;
+  conflictVariants: LoreConflictVariant[];
+} {
   const byId = new Map<string, LoreLineDiagnostic[]>();
   for (const line of lines) {
-    if ((line.class === "accepted" || line.class === "nonconforming") && line.id) {
+    if (isUnionCandidate(line)) {
       const bucket = byId.get(line.id) ?? [];
       bucket.push(line);
       byId.set(line.id, bucket);
     }
   }
+  const acceptedById = new Map<string, LoreLineDiagnostic>();
+  const conflictIds = new Set<string>();
+  const conflictVariants = new Map<string, LoreConflictVariant>();
   for (const bucket of byId.values()) {
-    const bodies = new Set(bucket.map((line) => hex(line.bodyBytes ?? new Uint8Array())));
+    const bodies = new Set(bucket.map((line) => line.bodyDigest));
     if (bodies.size > 1) {
       for (const line of bucket) {
         line.class = "conflict-variant";
         line.reason = "same id with different body bytes";
+        conflictIds.add(line.id!);
+        const variant = conflictVariantFor(line);
+        conflictVariants.set(`${variant.id}\0${variant.digest}`, variant);
       }
       continue;
     }
+    let kept = bucket[0]!;
     for (let i = 1; i < bucket.length; i++) {
       bucket[i].duplicateSighting = true;
-      if ((bucket[i].digest ?? "") !== (bucket[0].digest ?? "") || (bucket[i].sig ?? "") !== (bucket[0].sig ?? "")) {
+      if ((bucket[i].digest ?? "") !== (kept.digest ?? "") || (bucket[i].sig ?? "") !== (kept.sig ?? "")) {
         bucket[i].metadataDisagreement = true;
       }
+      if (isRicherLine(bucket[i], kept)) kept = bucket[i];
     }
+    acceptedById.set(kept.id!, kept);
   }
+  return { acceptedById, conflictIds, conflictVariants: [...conflictVariants.values()] };
 }
 
 function validateEnvelope(value: unknown):
@@ -306,6 +451,76 @@ function validateEnvelope(value: unknown):
     if (!authorFields.has(key)) nonconforming.push(`unknown author field ${key}`);
   }
   return { ok: true, event: value as LoreEventBody, nonconforming };
+}
+
+function buildResult(
+  lines: LoreLineDiagnostic[],
+  acceptedById: Map<string, LoreLineDiagnostic>,
+  conflictIds: Set<string>,
+  conflictVariants: LoreConflictVariant[],
+  pending: LorePendingDiagnostic[],
+  pendingOverflowCount: number,
+): LoreParseResult {
+  const viewEligibleIds = [...acceptedById.keys()].filter((id) => !conflictIds.has(id)).sort();
+  const graphDiagnostics = graphObstacles(acceptedById, conflictIds);
+  const suppression = computeSuppression(acceptedById, conflictIds);
+
+  return {
+    lines,
+    unionEventIds: viewEligibleIds,
+    viewEligibleIds,
+    conflictIds: [...conflictIds].sort(),
+    conflictVariants: conflictVariants.sort((a, b) => compareStrings(`${a.id}\0${a.digest}`, `${b.id}\0${b.digest}`)),
+    pending: pending.sort((a, b) => compareStrings(`${a.missingParent}\0${a.digest}`, `${b.missingParent}\0${b.digest}`)),
+    pendingOverflowCount,
+    suppression,
+    graphDiagnostics,
+  };
+}
+
+function isUnionCandidate(line: LoreLineDiagnostic): line is LoreLineDiagnostic & {
+  id: string;
+  event: LoreEventBody;
+  bodyBytes: Uint8Array;
+  bodyDigest: string;
+} {
+  return (line.class === "accepted" || line.class === "nonconforming") && Boolean(line.id && line.event && line.bodyBytes && line.bodyDigest);
+}
+
+function sameBody(a: LoreLineDiagnostic, b: LoreLineDiagnostic): boolean {
+  return a.bodyDigest === b.bodyDigest && bytesEqual(a.bodyBytes, b.bodyBytes);
+}
+
+function isRicherLine(candidate: LoreLineDiagnostic, current: LoreLineDiagnostic): boolean {
+  if (Boolean(candidate.sig) !== Boolean(current.sig)) return Boolean(candidate.sig);
+  if (Boolean(candidate.digest) !== Boolean(current.digest)) return Boolean(candidate.digest);
+  return false;
+}
+
+function conflictVariantFor(line: LoreLineDiagnostic): LoreConflictVariant {
+  if (!line.id || !line.event || !line.bodyBytes || !line.bodyDigest) {
+    throw new Error("conflict variant missing parsed event body");
+  }
+  return {
+    id: line.id,
+    digest: line.bodyDigest,
+    file: line.file,
+    line: line.line,
+    bytes: line.bytes,
+    bodyBytes: line.bodyBytes,
+    event: line.event,
+  };
+}
+
+function firstMissingParent(
+  line: LoreLineDiagnostic & { event: LoreEventBody },
+  acceptedById: Map<string, LoreLineDiagnostic>,
+  knownIds: Set<string>,
+): string | undefined {
+  const parent = line.event.parents[0];
+  if (!parent) return undefined;
+  if (acceptedById.has(parent) || knownIds.has(parent)) return undefined;
+  return parent;
 }
 
 function computeSuppression(acceptedById: Map<string, LoreLineDiagnostic>, conflictIds: Set<string>) {
@@ -506,8 +721,16 @@ function sha256Hex(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-function hex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
+function bytesEqual(a: Uint8Array | undefined, b: Uint8Array | undefined): boolean {
+  if (!a || !b || a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < a.byteLength; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function compareStrings(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
 }
 
 function decodeUtf8(bytes: Uint8Array): string {
