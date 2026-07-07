@@ -33,6 +33,11 @@
       "import": "./dist/memory.js",
       "default": "./dist/memory.js"
     },
+    "./lore/events": {
+      "types": "./dist/lore/events.d.ts",
+      "import": "./dist/lore/events.js",
+      "default": "./dist/lore/events.js"
+    },
     "./profiles/text-story": {
       "types": "./dist/profiles/text-story.d.ts",
       "import": "./dist/profiles/text-story.js",

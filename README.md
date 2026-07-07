@@ -166,6 +166,27 @@ const leaves = await loom.leaves();
 const snapshot = await loom.export();
 ```
 
+## Parsing Lorefiles
+
+`@lync/core/lore/events` exposes the LORE-V0 line reader. It classifies every
+physical line and carries the original bytes, including garbage and damaged
+lines, so tooling can surface problems without silently discarding model output.
+
+```ts
+import { readFileSync } from "node:fs";
+import { parseLoreFiles, exportCarriedLoreBytes } from "@lync/core/lore/events";
+
+const parsed = parseLoreFiles([
+  { file: "history.lore", bytes: readFileSync("history.lore") },
+]);
+
+for (const line of parsed.lines) {
+  console.log(line.file, line.line, line.class, line.id, line.reason);
+}
+
+const carried = exportCarriedLoreBytes(parsed);
+```
+
 ## Node Scripts
 
 Agents, importers, and command-line tools can write to the same kind of loom
