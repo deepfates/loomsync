@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseLoreFiles } from "../src/lore/events.js";
 import {
@@ -9,8 +10,7 @@ import {
   loreTranscriptView,
 } from "../src/lore/views.js";
 
-const vectorsRoot =
-  "/Users/deepfates/Hacking/github/deepfates/portfolio-audit-20260701/lore-vectors-draft";
+const vectorsRoot = join(dirname(fileURLToPath(import.meta.url)), "vectors", "lore-vectors-draft");
 
 interface ExpectedFixture {
   inputs: string[];
