@@ -14,16 +14,19 @@ replacement in `dee-9l2l`; it is not the data model.
 ## Ninety-Second Story
 
 The shipped `lync` CLI has five verbs: `verify`, `merge`, `view`, `init`, and
-`append`. A complete first mile looks like this:
+`append`. From a fresh clone, run these from the repo root after
+`pnpm install && pnpm build`; `pnpm exec lync` resolves the workspace binary. A
+published or globally installed package drops the `pnpm exec` prefix and you
+call `lync` directly. A complete first mile looks like this:
 
 ```bash
-lync init story.lync
-printf '%s\n' '{"id":"root","kind":"notes/text","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates","via":"example@0.1"},"parents":[],"payload":{"text":"Once..."}}' | lync append story.lync
-lync verify story.lync
-lync view story.lync --as transcript
-printf '%s\n' '{"id":"note-2","kind":"notes/text","at":"2026-07-06T04:13:00Z","author":{"actor":"deepfates","via":"example@0.1"},"parents":["root"],"payload":{"text":"Then..."}}' | lync append imported.lync
-lync merge story.lync imported.lync -o merged.lync
-lync view merged.lync --as tree
+pnpm exec lync init story.lync
+printf '%s\n' '{"id":"root","kind":"notes/text","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates","via":"example@0.1"},"parents":[],"payload":{"text":"Once..."}}' | pnpm exec lync append story.lync
+pnpm exec lync verify story.lync
+pnpm exec lync view story.lync --as transcript
+printf '%s\n' '{"id":"note-2","kind":"notes/text","at":"2026-07-06T04:13:00Z","author":{"actor":"deepfates","via":"example@0.1"},"parents":["root"],"payload":{"text":"Then..."}}' | pnpm exec lync append imported.lync
+pnpm exec lync merge story.lync imported.lync -o merged.lync
+pnpm exec lync view merged.lync --as tree
 ```
 
 Under those verbs, every line has the same envelope:
