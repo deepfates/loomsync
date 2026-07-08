@@ -368,7 +368,7 @@ function parseLine(raw: { file: string; line: number; bytes: Uint8Array; termina
 }
 
 function splitSplice(bytes: Uint8Array): { bodyBytes: Uint8Array; digest?: string; sig?: string } {
-  const text = Buffer.from(bytes).toString("latin1");
+  const text = latin1Decode(bytes);
   const match = text.match(/,"digest":"(sha256:[0-9a-f]{64})"(?:,"sig":"([A-Za-z0-9+/]+={0,2})")?}$/);
   if (!match) return { bodyBytes: bytes };
   const sig = match[2];
@@ -379,6 +379,15 @@ function splitSplice(bytes: Uint8Array): { bodyBytes: Uint8Array; digest?: strin
   bodyBytes.set(bytes.slice(0, match.index));
   bodyBytes[bodyBytes.byteLength - 1] = 0x7d;
   return { bodyBytes, digest: match[1], sig };
+}
+
+function latin1Decode(bytes: Uint8Array): string {
+  let text = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
+    text += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return text;
 }
 
 function markConflicts(lines: LoreLineDiagnostic[]): {

@@ -178,6 +178,23 @@ describe("LORE-V0 line parser vectors", () => {
     expect(Buffer.from(garbageExported).equals(garbageOriginal)).toBe(true);
   });
 
+  it("parses digest splices without Buffer", () => {
+    const originalBuffer = globalThis.Buffer;
+    try {
+      // @ts-expect-error exercises the browser bundle path under a Node test runner.
+      delete globalThis.Buffer;
+      const body = eventBody({ id: "browser-no-buffer", kind: "lore/artifact" });
+      const line = `${body.slice(0, -1)},"digest":"${digestFor(new TextEncoder().encode(body))}"}\n`;
+      const result = parseLoreFiles([{ file: "browser.lore", bytes: new TextEncoder().encode(line) }]);
+
+      expect(result.lines[0]?.class).toBe("accepted");
+      expect(result.lines[0]?.id).toBe("browser-no-buffer");
+      expect(result.unionEventIds).toEqual(["browser-no-buffer"]);
+    } finally {
+      globalThis.Buffer = originalBuffer;
+    }
+  });
+
   it("surfaces and carries unknown fields without dropping them", () => {
     const { result } = loadFixture("11-nonconforming-carried");
     expect(result.lines.map((line) => line.class)).toEqual(["nonconforming", "nonconforming"]);
