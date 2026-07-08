@@ -92,8 +92,8 @@ async function migrate(source: string, out: string): Promise<MigrationReport> {
       docBeforeEvents = countLoomDocEvents(doc);
       const snapshot = snapshotFromDoc(doc);
       const imported = await looms.import(snapshot);
-      const lore = await looms.open(imported.id);
-      const migrated = await lore.export();
+      const loom = await looms.open(imported.id);
+      const migrated = await loom.export();
       assertIsomorphic(snapshot, migrated);
       docAfterEvents = countSnapshotEvents(migrated);
       if (docBeforeEvents !== docAfterEvents) {
@@ -264,7 +264,7 @@ function mergeArrays(arrays: Uint8Array[]): Uint8Array {
 }
 
 function rootId(loomId: string): string {
-  if (!loomId.startsWith("lore:")) throw new Error(`expected imported lore loom id, got ${loomId}`);
+  if (!loomId.startsWith("lore:")) throw new Error(`expected imported lync loom id, got ${loomId}`);
   return loomId.slice("lore:".length);
 }
 
@@ -278,7 +278,7 @@ class MigrationEventStore extends BaseEventStore {
 
   async flushRoot(root: string): Promise<void> {
     await fs.mkdir(this.dir, { recursive: true });
-    await fs.writeFile(path.join(this.dir, `${encodeURIComponent(root)}.lore`), await this.exportRootBytes(root));
+    await fs.writeFile(path.join(this.dir, `${encodeURIComponent(root)}.lync`), await this.exportRootBytes(root));
   }
 }
 
@@ -357,7 +357,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const [sourceDir, outDir] = process.argv.slice(2);
 if (!sourceDir || !outDir) {
-  console.error("usage: node --experimental-strip-types scripts/migrate-automerge-to-lore.ts <copy-of-.data/lync> <out-dir>");
+  console.error("usage: node --experimental-strip-types scripts/migrate-automerge-to-lync.ts <copy-of-.data/lync> <out-dir>");
   process.exit(2);
 }
 

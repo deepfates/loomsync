@@ -3,6 +3,7 @@ import path from "node:path";
 import { BaseEventStore, type GarbageRecord } from "./store.js";
 
 const STORE_FILE = "events.json";
+const EVENT_FILE_EXTENSIONS = [".lync", ".lore"];
 
 export interface FileEventStoreOptions {
   dir: string;
@@ -70,7 +71,7 @@ export class FileEventStore extends BaseEventStore {
 
   private async loadLoreFiles(): Promise<void> {
     const files = await fs.readdir(this.options.dir);
-    for (const file of files.filter((candidate) => candidate.endsWith(".lore"))) {
+    for (const file of files.filter(isEventFile).sort()) {
       const raw = await fs.readFile(path.join(this.options.dir, file), "utf8");
       for (const line of raw.split("\n")) {
         if (line.length) await super.union(line);
@@ -79,12 +80,16 @@ export class FileEventStore extends BaseEventStore {
   }
 
   private async writeLoreFiles(): Promise<void> {
-    const roots = new Set(this.dumpRecords().events.map((event) => event.root));
+    const records = this.dumpRecords();
+    const roots = new Set(records.events.map((event) => event.root));
     for (const root of roots) {
-      const bytes = await super.exportRootBytes(root);
-      await fs.writeFile(path.join(this.options.dir, `${encodeURIComponent(root)}.lore`), bytes);
+      const events = records.events
+        .filter((event) => event.root === root)
+        .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+      const bytes = events.map((event) => event.bytes).join("\n") + (events.length ? "\n" : "");
+      await fs.writeFile(path.join(this.options.dir, `${encodeURIComponent(root)}.lync`), bytes);
     }
-    const garbage: GarbageRecord[] = this.dumpRecords().garbage;
+    const garbage: GarbageRecord[] = records.garbage;
     if (garbage.length) {
       await fs.writeFile(path.join(this.options.dir, "garbage.json"), JSON.stringify(garbage, null, 2));
     }
@@ -93,4 +98,8 @@ export class FileEventStore extends BaseEventStore {
 
 export function createFileEventStore(dir: string): FileEventStore {
   return new FileEventStore({ dir });
+}
+
+function isEventFile(file: string): boolean {
+  return EVENT_FILE_EXTENSIONS.some((extension) => file.endsWith(extension));
 }

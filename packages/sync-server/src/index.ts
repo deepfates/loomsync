@@ -9,7 +9,10 @@ import type {
   StorageKey,
 } from "@automerge/automerge-repo";
 import { WebSocketServerAdapter } from "@automerge/automerge-repo-network-websocket";
-import { WebSocketServer } from "isomorphic-ws";
+import WebSocket from "isomorphic-ws";
+
+const { WebSocketServer } = WebSocket;
+type LyncWebSocketServer = InstanceType<typeof WebSocketServer>;
 
 export type LyncUpgradeAuthenticator = (request: http.IncomingMessage) => boolean;
 
@@ -26,7 +29,7 @@ export interface LyncServerOptions {
 
 export interface LyncServer {
   repo: Repo;
-  server: WebSocketServer;
+  server: LyncWebSocketServer;
   url: string;
   close(): Promise<void>;
 }
@@ -167,7 +170,7 @@ function rejectUpgrade(socket: Duplex, status: string) {
 
 async function closeRelay(
   repo: Repo,
-  socketServer: WebSocketServer,
+  socketServer: LyncWebSocketServer,
   upgradeSockets: Set<Duplex>,
 ) {
   for (const client of socketServer.clients) {
@@ -218,7 +221,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | void> {
 }
 
 function createRelayRepo(
-  server: WebSocketServer,
+  server: LyncWebSocketServer,
   options: Pick<LyncServerOptions, "keepAliveInterval" | "repoConfig" | "storageDir">,
 ) {
   const adapter = new WebSocketServerAdapter(server, options.keepAliveInterval);
