@@ -326,13 +326,19 @@ the exact library code they ship.
 
 ```bash
 pnpm install
-pnpm test
 pnpm build
+pnpm exec lync --help
+pnpm test
 pnpm verify
 ```
 
 `pnpm verify` runs tests, builds packages, and typechecks emitted package
 surfaces.
+
+For a fresh clone, `pnpm install && pnpm build` is the supported setup sequence.
+After that, `pnpm exec lync --help` should print the CLI help from the workspace
+root. `scripts/fresh-clone-smoke.sh` verifies that sequence in a temporary clone
+and runs the CLI story path: init, append, view, concatenate, merge, and verify.
 
 ## Status
 
