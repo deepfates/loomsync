@@ -1,37 +1,29 @@
-# Lync Roadmap
+# lync Roadmap
 
-## Verification Loop
+This is the small, near-term roadmap. The format is intentionally tiny; new
+meaning should land in pacts, not in the envelope.
 
-Run this after each implementation slice:
+## Now
 
-```bash
-pnpm verify
-```
+- Ship the `lync` CLI (`dee-i9bm`) for init, append, union, inspect, and view
+  workflows over `.lync` files.
+- Finish the native sync replacement (`dee-9l2l`) so Automerge becomes only the
+  legacy transport path.
+- Keep `FORMAT.md` and the test vectors aligned as the reference other
+  languages can port.
 
-`verify` runs tests, builds packages, and typechecks emitted package surfaces.
+## Next
 
-## Completed v0.2 Cutover
+- Flesh out pacts for ordering, authorship, selections, scoring, retraction,
+  and training-export obligations.
+- Rename legacy internal paths and file-store output once compatibility allows
+  it.
+- Publish packages after Textile consumes lync as a dependency instead of a
+  vendored copy.
 
-- [x] Create standalone TypeScript workspace.
-- [x] Define `core`, `index`, `client`, and `sync-server` package boundaries.
-- [x] Implement in-memory loom backend.
-- [x] Implement in-memory index backend.
-- [x] Add meaningful topology, reference, index, sync, and client tests.
-- [x] Add Automerge document schema for looms.
-- [x] Implement Automerge `create`, `open`, `appendTurn`, and queries.
-- [x] Add Automerge export/import validation.
-- [x] Add Automerge subscription event translation.
-- [x] Add browser client for IndexedDB, BroadcastChannel, and WebSocket sync.
-- [x] Implement Automerge-backed indexes.
-- [x] Add WebSocket sync relay package.
-- [x] Cut public language to `loom`, `turn`, `thread`, `reference`, and `index`.
-- [x] Fold Textile integration learnings into docs and payload boundaries.
-- [x] Add the starter `text-story` profile contract for independent writers.
+## Later
 
-## Likely Next Work
-
-- [ ] Publish packages once the vendored Textile integration is stable.
-- [ ] Add a small example app that demonstrates loom, index, and thread links.
-- [ ] Add docs for recommended app-level turn metadata conventions.
-- [ ] Add sync-server deployment notes.
-- [ ] Decide whether a MessageChannel adapter is worth adding after real usage.
+- Build a focused viewer for branch trees, transcripts, memory/frontier views,
+  conflicts, damaged lines, and suppression explanations.
+- Add deployment notes for sync services once native sync is the default.
+- Add conformance fixtures for non-TypeScript implementations.
