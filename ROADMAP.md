@@ -5,8 +5,8 @@ meaning should land in pacts, not in the envelope.
 
 ## Now
 
-- Ship the `lync` CLI (`dee-i9bm`) for init, append, union, inspect, and view
-  workflows over `.lync` files.
+- Harden the shipped `lync` CLI for `verify`, `merge`, `view`, `init`, and
+  `append` workflows over `.lync` files.
 - Finish the native sync replacement (`dee-9l2l`) so Automerge becomes only the
   legacy transport path.
 - Keep `FORMAT.md` and the test vectors aligned as the reference other
@@ -16,8 +16,7 @@ meaning should land in pacts, not in the envelope.
 
 - Flesh out pacts for ordering, authorship, selections, scoring, retraction,
   and training-export obligations.
-- Rename legacy internal paths and file-store output once compatibility allows
-  it.
+- Rename legacy internal paths once compatibility allows it.
 - Publish packages after Textile consumes lync as a dependency instead of a
   vendored copy.
 

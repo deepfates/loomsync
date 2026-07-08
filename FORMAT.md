@@ -1,4 +1,4 @@
-# The lync format
+# The lync format — files of lore
 
 Status: v0 draft. Conventional extension: `.lync`.
 
@@ -283,17 +283,21 @@ agree on. A pact binds its signatories; the protocol binds everyone.
 Where a community has already converged, borrow; mint only where you are
 genuinely first. Current recommendations:
 
-- `lync/artifact`: a thing someone produced from prior things, such as prose,
+- `lore/artifact`: a thing someone produced from prior things, such as prose,
   code, a prediction, a tool result, an imported message, or a computed excerpt.
   `parents` are what it was made from, in order.
-- `lync/annotation`: an authored claim about one or more events. `parents` are
+- `lore/annotation`: an authored claim about one or more events. `parents` are
   the targets. Scores, critiques, rewards, receipts, labels, and selections are
   relations-as-events.
-- `lync/pointer`: a named reference that moves without mutating. Payload
+- `lore/pointer`: a named reference that moves without mutating. Payload
   `{"name": "...", "target": "<id>"}`; live value is newest per actor and name.
   Older pointers are history.
-- `lync/tombstone`: retraction, written `critical: true` so rule 3 binds even
+- `lore/tombstone`: retraction, written `critical: true` so rule 3 binds even
   readers that have never heard of tombstones. `parents[0]` is the target.
+
+Historical namespace spellings are frozen wire vocabulary. Shipped kind strings
+such as `lore/annotation`, `lore/artifact`, `lync/turn`, and `lync/loom` are
+exact-match data in stored files; the lync brand does not rename shipped kinds.
 
 Annotation labels may include `selection`, `score`, `decision`, `no-train`,
 `aborted`, `revision`, `excerpt`, and `ordinal`. Chat roles can borrow ChatML
@@ -374,11 +378,11 @@ elided for readability only. Conforming writers mint UUIDv7 ids and should
 splice digests per "Bytes Are Canonical."
 
 ```jsonl
-{"v":1,"id":"A","kind":"lync/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"The bear stood at the lip of the falls."}}
-{"v":1,"id":"B","kind":"lync/artifact","at":"2026-07-06T04:10:09Z","author":{"actor":"claude-haiku-4-5","operator":"deepfates","via":"textile@0.9"},"parents":["A"],"payload":{"text":"It did not move for an hour, and the river brought it everything.","ordinal":0}}
-{"v":1,"id":"C","kind":"lync/artifact","at":"2026-07-06T04:10:09Z","author":{"actor":"claude-haiku-4-5","operator":"deepfates","via":"textile@0.9"},"parents":["A"],"payload":{"text":"Downstream, the younger bears fought over shallows.","ordinal":1}}
-{"v":1,"id":"D","kind":"lync/annotation","at":"2026-07-06T04:10:11Z","author":{"actor":"witness-panel-v3"},"parents":["B"],"payload":{"label":"score","value":0.91}}
-{"v":1,"id":"E","kind":"lync/annotation","at":"2026-07-06T04:10:15Z","author":{"actor":"deepfates"},"parents":["B","C"],"payload":{"label":"selection","chosen":["B"],"shown":["B","C"],"basis":"human pick"}}
+{"v":1,"id":"A","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"The bear stood at the lip of the falls."}}
+{"v":1,"id":"B","kind":"lore/artifact","at":"2026-07-06T04:10:09Z","author":{"actor":"claude-haiku-4-5","operator":"deepfates","via":"textile@0.9"},"parents":["A"],"payload":{"text":"It did not move for an hour, and the river brought it everything.","ordinal":0}}
+{"v":1,"id":"C","kind":"lore/artifact","at":"2026-07-06T04:10:09Z","author":{"actor":"claude-haiku-4-5","operator":"deepfates","via":"textile@0.9"},"parents":["A"],"payload":{"text":"Downstream, the younger bears fought over shallows.","ordinal":1}}
+{"v":1,"id":"D","kind":"lore/annotation","at":"2026-07-06T04:10:11Z","author":{"actor":"witness-panel-v3"},"parents":["B"],"payload":{"label":"score","value":0.91}}
+{"v":1,"id":"E","kind":"lore/annotation","at":"2026-07-06T04:10:15Z","author":{"actor":"deepfates"},"parents":["B","C"],"payload":{"label":"selection","chosen":["B"],"shown":["B","C"],"basis":"human pick"}}
 ```
 
 Event `E` exists because nothing was extended yet, so the graph alone cannot

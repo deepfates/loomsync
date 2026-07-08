@@ -1,10 +1,11 @@
 # lync
 
-lync is the TypeScript reference implementation of the lync format: `.lync`
-files are append-only JSONL interaction histories. Each line is one immutable
-event with an envelope, parent links, provenance, and a payload owned by the
-event kind. Merge is set union by event id. Branch trees, transcripts, memory
-views, and leaderboards are computed views over the same event set.
+lync is the TypeScript reference implementation of the lync format: files of
+lore stored as `.lync` append-only JSONL interaction histories. Each line is
+one immutable event with an envelope, parent links, provenance, and a payload
+owned by the event kind. Merge is set union by event id. Branch trees,
+transcripts, memory views, and leaderboards are computed views over the same
+event set.
 
 The current library keeps the old loom/turn API while the format layer becomes
 the durable center. Automerge is the current sync transport, scheduled for
@@ -12,24 +13,27 @@ replacement in `dee-9l2l`; it is not the data model.
 
 ## Ninety-Second Story
 
-The `lync` CLI is being built in parallel (`dee-i9bm`). Its intended first mile
-is deliberately small:
+The shipped `lync` CLI has five verbs: `verify`, `merge`, `view`, `init`, and
+`append`. A complete first mile looks like this:
 
 ```bash
 lync init story.lync
-lync append story.lync --kind lync/artifact --actor deepfates --payload '{"text":"Once..."}'
-lync view story.lync memory
-lync union story.lync imported.lync > merged.lync
+printf '%s\n' '{"id":"root","kind":"notes/text","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates","via":"example@0.1"},"parents":[],"payload":{"text":"Once..."}}' | lync append story.lync
+lync verify story.lync
+lync view story.lync --as transcript
+printf '%s\n' '{"id":"note-2","kind":"notes/text","at":"2026-07-06T04:13:00Z","author":{"actor":"deepfates","via":"example@0.1"},"parents":["root"],"payload":{"text":"Then..."}}' | lync append imported.lync
+lync merge story.lync imported.lync -o merged.lync
+lync view merged.lync --as tree
 ```
 
 Under those verbs, every line has the same envelope:
 
 ```json
-{"v":1,"id":"0197f3a2-8c1e-7d40-b3a1-9e2d4c5f6a7b","kind":"lync/artifact","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates","via":"textile@0.9"},"parents":[],"payload":{"text":"Once..."}}
+{"v":1,"id":"root","kind":"notes/text","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates","via":"example@0.1"},"parents":[],"payload":{"text":"Once..."}}
 ```
 
 That line can be copied to another file, merged back later, verified byte for
-byte, and read by software that has never heard of `lync/artifact`. Unknown
+byte, and read by software that has never heard of `notes/text`. Unknown
 kinds are carried and traversed; meaning belongs to pacts layered above the
 format.
 
@@ -75,17 +79,17 @@ compatibility. Import them by path; do not treat those path segments as public
 vocabulary.
 
 ```ts
-import { parseLoreFiles, exportCarriedLoreBytes, LoreUnion } from "@lync/core/lore/events";
-import { createMemoryEventStore } from "@lync/core/lore/memory-log";
+import { LoreUnion, exportCarriedLoreBytes, parseLoreFiles } from "@lync/core/lore/events";
 import { createFileEventStore } from "@lync/core/lore/file-log";
 import { createIndexedDbEventStore } from "@lync/core/lore/idb-log";
 import { createLoreLooms, createFileLoreLooms, createBrowserLoreLooms } from "@lync/core/lore/looms";
+import { createMemoryEventStore } from "@lync/core/lore/memory-log";
 import { BaseEventStore, serializeLoreEvent } from "@lync/core/lore/store";
 import {
   loreBranchTreeView,
-  loreTranscriptView,
-  loreMemoryView,
   loreLeaderboardView,
+  loreMemoryView,
+  loreTranscriptView,
 } from "@lync/core/lore/views";
 ```
 
@@ -109,7 +113,7 @@ import { parseLoreFiles } from "@lync/core/lore/events";
 import { loreBranchTreeView, loreMemoryView } from "@lync/core/lore/views";
 
 const bytes = new TextEncoder().encode(
-  '{"v":1,"id":"a","kind":"lync/artifact","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"Once..."}}\n',
+  '{"v":1,"id":"a","kind":"notes/text","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"Once..."}}\n',
 );
 
 const parsed = parseLoreFiles([{ file: "story.lync", bytes }]);
@@ -198,7 +202,9 @@ node scripts/migrate-automerge-to-lync.ts <automerge-storage-dir> <out-dir>
 
 The script writes a migration report as it goes, verifies migrated snapshots are
 isomorphic to the source loom shape, and records per-document failures instead
-of aborting the whole migration.
+of aborting the whole migration. Migrated roots are written as `.lync` files.
+The file event store reads both `.lync` and legacy `.lore` files so old
+exports can be mixed with newly migrated roots during a transition.
 
 ## Sync Server
 

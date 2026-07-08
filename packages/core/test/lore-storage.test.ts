@@ -22,6 +22,23 @@ describe("lore storage backends", () => {
     expect(await createFileEventStore(dir).exportRootBytes?.(written.rootId)).toEqual(written.bytes);
   });
 
+  it("loads mixed .lync and legacy .lore event files", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-lore-mixed-"));
+    await fs.writeFile(
+      path.join(dir, "new.lync"),
+      '{"v":1,"id":"new-root","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"tester"},"parents":[],"payload":{"text":"new extension"}}\n',
+    );
+    await fs.writeFile(
+      path.join(dir, "legacy.lore"),
+      '{"v":1,"id":"legacy-root","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"tester"},"parents":[],"payload":{"text":"legacy extension"}}\n',
+    );
+
+    const store = createFileEventStore(dir);
+    await expect(store.byId("new-root")).resolves.toMatchObject({ body: { id: "new-root" } });
+    await expect(store.byId("legacy-root")).resolves.toMatchObject({ body: { id: "legacy-root" } });
+    await expect(store.diagnostics()).resolves.toMatchObject({ events: 2 });
+  });
+
   it("round-trips byte-identical events through the IndexedDB-shaped store", async () => {
     const indexedDB = createFakeIndexedDB();
     const written = await assertRoundTrip(createIndexedDbEventStore({ dbName: "test", indexedDB }));
