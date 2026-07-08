@@ -32,3 +32,6 @@ jobs:
 
       - name: Verify
         run: pnpm verify
+
+      - name: Fresh clone CLI smoke
+        run: scripts/fresh-clone-smoke.sh
