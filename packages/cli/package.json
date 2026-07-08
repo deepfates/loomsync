@@ -1,0 +1,30 @@
+{
+  "name": "@lync/cli",
+  "version": "0.2.0",
+  "description": "Command-line tools for lync files.",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "bin": {
+    "lync": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@lync/core": "workspace:*"
+  }
+}
