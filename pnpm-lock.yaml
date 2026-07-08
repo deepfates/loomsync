@@ -30,6 +30,9 @@ importers:
         specifier: ^14.0.0
         version: 14.0.0
     devDependencies:
+      '@lync/cli':
+        specifier: workspace:*
+        version: link:packages/cli
       '@types/node':
         specifier: ^22.14.0
         version: 22.19.17
@@ -39,6 +42,12 @@ importers:
       vitest:
         specifier: ^3.1.1
         version: 3.2.4(@types/node@22.19.17)
+
+  packages/cli:
+    dependencies:
+      '@lync/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/client:
     dependencies:
@@ -646,6 +655,7 @@ packages:
 
   uuid@9.0.1:
     resolution: {integrity: sha512-b+1eJOlsR9K8HJpow9Ok3fiWOWSIcIzXodvv0rQjVoOVNpWMpxf1wZNpt4y9h10odCNrqnYp1OBzRktckBe3sA==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   vite-node@3.2.4:
