@@ -33,6 +33,41 @@
       "import": "./dist/memory.js",
       "default": "./dist/memory.js"
     },
+    "./lore/events": {
+      "types": "./dist/lore/events.d.ts",
+      "import": "./dist/lore/events.js",
+      "default": "./dist/lore/events.js"
+    },
+    "./lore/file-log": {
+      "types": "./dist/lore/file-log.d.ts",
+      "import": "./dist/lore/file-log.js",
+      "default": "./dist/lore/file-log.js"
+    },
+    "./lore/idb-log": {
+      "types": "./dist/lore/idb-log.d.ts",
+      "import": "./dist/lore/idb-log.js",
+      "default": "./dist/lore/idb-log.js"
+    },
+    "./lore/looms": {
+      "types": "./dist/lore/looms.d.ts",
+      "import": "./dist/lore/looms.js",
+      "default": "./dist/lore/looms.js"
+    },
+    "./lore/memory-log": {
+      "types": "./dist/lore/memory-log.d.ts",
+      "import": "./dist/lore/memory-log.js",
+      "default": "./dist/lore/memory-log.js"
+    },
+    "./lore/store": {
+      "types": "./dist/lore/store.d.ts",
+      "import": "./dist/lore/store.js",
+      "default": "./dist/lore/store.js"
+    },
+    "./lore/views": {
+      "types": "./dist/lore/views.d.ts",
+      "import": "./dist/lore/views.js",
+      "default": "./dist/lore/views.js"
+    },
     "./profiles/text-story": {
       "types": "./dist/profiles/text-story.d.ts",
       "import": "./dist/profiles/text-story.js",
@@ -55,5 +90,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@automerge/automerge": "^3.2.6"
   }
 }

@@ -48,4 +48,23 @@ describe("references", () => {
     expect(referenceFromUrl(new URL(url))).toEqual(ref);
     expect(referenceFromUrl(new URL("https://loom.test/"))).toBeNull();
   });
+
+  it("does not require Buffer when browser base64 globals exist", () => {
+    const originalBuffer = globalThis.Buffer;
+    const originalBtoa = globalThis.btoa;
+    const originalAtob = globalThis.atob;
+    try {
+      // @ts-expect-error exercises the browser bundle path under a Node test runner.
+      delete globalThis.Buffer;
+      globalThis.btoa = (value: string) => originalBuffer.from(value, "binary").toString("base64");
+      globalThis.atob = (value: string) => originalBuffer.from(value, "base64").toString("binary");
+
+      const ref = threadRef("lore:loom", "turn-unicode-\u2713");
+      expect(decodeReference(encodeReference(ref))).toEqual(ref);
+    } finally {
+      globalThis.Buffer = originalBuffer;
+      globalThis.btoa = originalBtoa;
+      globalThis.atob = originalAtob;
+    }
+  });
 });

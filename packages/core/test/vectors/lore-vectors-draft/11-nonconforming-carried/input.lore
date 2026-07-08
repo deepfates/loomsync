@@ -1,0 +1,2 @@
+{"v":1,"id":"018f0000-0000-7000-8000-000000000101","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"unknown top"},"mood":"future","digest":"sha256:11c3bc22efb5e8ce313a2dddb18344188519a57c1332d634734a6c2518f02b3a"}
+{"v":1,"id":"018f0000-0000-7000-8000-000000000102","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"deepfates","role":"extra"},"parents":[],"payload":{"text":"unknown author"},"digest":"sha256:cc2913959f2825afe909ca4953f628291fc379bd55538447b4dd253a52efb98c"}

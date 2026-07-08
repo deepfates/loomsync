@@ -1,6 +1,8 @@
 import { invalidReference } from "./errors.js";
 import type { IndexId, LoomId, LoomReference, TurnId } from "./types.js";
 
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
 export interface ReferenceUrlOptions {
   param?: string;
 }
@@ -87,21 +89,46 @@ export function referenceFromUrl(
 
 function encodeBase64Url(value: string): string {
   const bytes = new TextEncoder().encode(value);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  const base64 =
-    typeof btoa === "function"
-      ? btoa(binary)
-      : Buffer.from(value, "utf8").toString("base64");
+  const base64 = encodeBase64(bytes);
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function decodeBase64Url(value: string): string {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
-  if (typeof atob === "function") {
-    const binary = atob(padded);
-    return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+  return new TextDecoder().decode(decodeBase64(padded));
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  let output = "";
+  for (let index = 0; index < bytes.length; index += 3) {
+    const first = bytes[index]!;
+    const second = bytes[index + 1];
+    const third = bytes[index + 2];
+    output += BASE64_ALPHABET[first >> 2];
+    output += BASE64_ALPHABET[((first & 0x03) << 4) | ((second ?? 0) >> 4)];
+    output += second === undefined
+      ? "="
+      : BASE64_ALPHABET[((second & 0x0f) << 2) | ((third ?? 0) >> 6)];
+    output += third === undefined ? "=" : BASE64_ALPHABET[third & 0x3f];
   }
-  return Buffer.from(padded, "base64").toString("utf8");
+  return output;
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const clean = value.replace(/=+$/g, "");
+  const bytes: number[] = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const char of clean) {
+    const value = BASE64_ALPHABET.indexOf(char);
+    if (value < 0) throw new Error("Invalid base64 character");
+    buffer = (buffer << 6) | value;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((buffer >> bits) & 0xff);
+    }
+  }
+  return Uint8Array.from(bytes);
 }
