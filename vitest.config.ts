@@ -32,6 +32,20 @@ export default defineConfig({
         ).pathname,
       },
       {
+        find: /^@lync\/core\/lore\/events$/,
+        replacement: new URL(
+          "./packages/core/src/lore/events.ts",
+          import.meta.url,
+        ).pathname,
+      },
+      {
+        find: /^@lync\/core\/lore\/views$/,
+        replacement: new URL(
+          "./packages/core/src/lore/views.ts",
+          import.meta.url,
+        ).pathname,
+      },
+      {
         find: /^@lync\/core$/,
         replacement: new URL("./packages/core/src/index.ts", import.meta.url).pathname,
       },

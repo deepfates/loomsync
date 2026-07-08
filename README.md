@@ -1,341 +1,234 @@
 # lync
 
-lync is a small TypeScript toolkit for local-first branching documents.
+lync is the TypeScript reference implementation of the lync format: files of
+lore stored as `.lync` append-only JSONL interaction histories. Each line is
+one immutable event with an envelope, parent links, provenance, and a payload
+owned by the event kind. Merge is set union by event id. Branch trees,
+transcripts, memory views, and leaderboards are computed views over the same
+event set.
 
-It gives an app a durable, synced **loom**: an append-only set of **turns** with
-parent pointers. From those turns you can materialize **threads**, discover
-leaves, export/import deterministic snapshots, and create portable
-**references** that work well in URLs.
+The current library keeps the old loom/turn API while the format layer becomes
+the durable center. Automerge is the current sync transport, scheduled for
+replacement in `dee-9l2l`; it is not the data model.
 
-The implementation is intentionally boring underneath: Automerge documents,
-IndexedDB persistence, BroadcastChannel tab sync, and optional WebSocket sync.
-The public API stays about looms, turns, threads, references, and indexes.
-lync also ships small **profile contracts** for data shapes that need
-cross-application interoperability. A profile is not a helper layer; it is a
-versioned schema target that independent writers and readers can agree on.
+## Ninety-Second Story
 
-## Vocabulary
+The shipped `lync` CLI has five verbs: `verify`, `merge`, `view`, `init`, and
+`append`. A complete first mile looks like this:
 
-- A **loom** is one shared branching namespace. In Automerge, one loom is one
-  document URL.
-- A **turn** is one append-only content record in a loom. It has one parent or
-  no parent.
-- A **thread** is the ordered lineage from a top-level turn to any target turn.
-  The target does not need to be a leaf.
-- A **reference** is a portable address to a loom, turn, thread, or index.
-- An **index** is a synced discovery document that stores loom references plus
-  narrow display metadata. It does not duplicate loom contents.
-- A **profile** is a named content contract for looms that multiple apps can
-  read and write.
+```bash
+lync init story.lync
+printf '%s\n' '{"id":"root","kind":"notes/text","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates","via":"example@0.1"},"parents":[],"payload":{"text":"Once..."}}' | lync append story.lync
+lync verify story.lync
+lync view story.lync --as transcript
+printf '%s\n' '{"id":"note-2","kind":"notes/text","at":"2026-07-06T04:13:00Z","author":{"actor":"deepfates","via":"example@0.1"},"parents":["root"],"payload":{"text":"Then..."}}' | lync append imported.lync
+lync merge story.lync imported.lync -o merged.lync
+lync view merged.lync --as tree
+```
 
-## Boundaries
+Under those verbs, every line has the same envelope:
 
-lync stores durable shared content. It does not store session state.
+```json
+{"v":1,"id":"root","kind":"notes/text","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates","via":"example@0.1"},"parents":[],"payload":{"text":"Once..."}}
+```
 
-Keep these in your app, not in lync snapshots or index entries:
+That line can be copied to another file, merged back later, verified byte for
+byte, and read by software that has never heard of `notes/text`. Unknown
+kinds are carried and traversed; meaning belongs to pacts layered above the
+format.
 
-- current focus
-- preferred child or branch
-- viewport state
-- drafts and edit mode
-- read progress
-- presence and cursors
+TODO(positioning): pending the market-sweep verdict, tighten the public
+positioning paragraph against adjacent products using the old contested term.
 
-Use the three data lanes deliberately:
+## The Format
 
-- **turn payload**: what the turn says, for example `{ text: string }`
-- **turn meta**: what the turn is or relates to, for example role, author,
-  provenance, `revises`, `references`, or `respondsTo`
-- **loom meta**: mutable chrome for the loom, for example title or color
+See [FORMAT.md](./FORMAT.md) for the normative lync format specification.
 
-For story-like apps, the seed text should be a top-level turn:
-`appendTurn(null, { text: "Once..." })`. If an app treats that seed as the
-identity of the story, editing it should create a new loom. lync keeps turns
-append-only; it does not decide whether a seed revision belongs in the same loom
-or should become a new loom.
+The short version:
+
+- A `.lync` file is UTF-8 JSONL, no BOM, one event object per LF-terminated
+  line.
+- The required event fields are `v`, `id`, `kind`, `at`, `author`, `parents`,
+  and `payload`.
+- `author.actor` is the content producer; `author.via` is the app or runtime;
+  converters use `imported_by` and preserve the original actor.
+- Events are immutable. Correction, judgment, selection, and retraction are new
+  events that point at prior events.
+- Merge is union by event id. Same id plus same body bytes is one event seen
+  twice; same id plus different body bytes is a surfaced conflict variant and is
+  excluded from ordinary views.
+- Stored line metadata may splice `digest` and `sig` at the end of the line.
+  `digest` and `sig` are reserved top-level body names; payloads may use those
+  names freely.
+- Views are computed. The package currently ships branch tree, transcript,
+  memory, and leaderboard helpers.
 
 ## Packages
 
-- `@lync/core`: looms, turns, threads, references, and snapshots.
-- `@lync/index`: synced indexes of loom references.
-- `@lync/client`: browser, Node, and test runtime clients.
-- `@lync/sync-server`: a simple Automerge WebSocket sync relay.
+- `@lync/core`: format parsing, event stores, computed views, references, and
+  the compatibility loom API.
+- `@lync/client`: browser, Node, and test runtime clients for the compatibility
+  API.
+- `@lync/sync-server`: the current Automerge WebSocket relay.
+- `@lync/index`: legacy synced indexes of loom references.
 
-## Text Story Profile
+## Format-Layer Imports
 
-`@lync/core/profiles/text-story` defines the starter interoperable profile for
-branching prose:
+The format-layer subpaths currently keep their internal path names for
+compatibility. Import them by path; do not treat those path segments as public
+vocabulary.
 
 ```ts
+import { LoreUnion, exportCarriedLoreBytes, parseLoreFiles } from "@lync/core/lore/events";
+import { createFileEventStore } from "@lync/core/lore/file-log";
+import { createIndexedDbEventStore } from "@lync/core/lore/idb-log";
+import { createLoreLooms, createFileLoreLooms, createBrowserLoreLooms } from "@lync/core/lore/looms";
+import { createMemoryEventStore } from "@lync/core/lore/memory-log";
+import { BaseEventStore, serializeLoreEvent } from "@lync/core/lore/store";
 import {
-  textStoryLoomMeta,
-  type TextStoryLoomMeta,
-  type TextStoryTurnMeta,
-  type TextStoryTurnPayload,
-} from "@lync/core/profiles/text-story";
+  loreBranchTreeView,
+  loreLeaderboardView,
+  loreMemoryView,
+  loreTranscriptView,
+} from "@lync/core/lore/views";
 ```
 
-The profile contract is intentionally small:
+The seven format-layer package exports are:
 
-- loom meta has `profile: "org.lync.profile.textStory.v1"` and optional `title`
-- turn payload is `{ text: string }`
-- turn meta may include `role`, `revises`, and app-defined `generatedBy`
-- the first top-level turn is the story opening
-- child turns are continuations/branches
-- if an app treats the opening as story identity, editing it should create a new
-  loom
+- `@lync/core/lore/events`: line parsing, carried-byte export, downsets, and
+  incremental union.
+- `@lync/core/lore/memory-log`: in-memory event store for tests and embedded
+  runtimes.
+- `@lync/core/lore/file-log`: file-backed event store.
+- `@lync/core/lore/idb-log`: IndexedDB-backed event store.
+- `@lync/core/lore/store`: base event-store contract and serialization helpers.
+- `@lync/core/lore/views`: branch tree, transcript, memory, and leaderboard
+  view helpers.
+- `@lync/core/lore/looms`: compatibility loom API backed by event stores.
 
-An external TypeScript program can write a Textile-readable story without
-importing Textile:
+## Parse, Union, View
 
 ```ts
-import { createNodeLoomClient } from "@lync/client/node";
-import {
-  textStoryLoomMeta,
-  type TextStoryLoomMeta,
-  type TextStoryTurnMeta,
-  type TextStoryTurnPayload,
-} from "@lync/core/profiles/text-story";
+import { parseLoreFiles } from "@lync/core/lore/events";
+import { loreBranchTreeView, loreMemoryView } from "@lync/core/lore/views";
 
-const client = createNodeLoomClient<
-  TextStoryTurnPayload,
-  TextStoryLoomMeta,
-  TextStoryTurnMeta
->({
-  syncUrl: "wss://loompad.lol/lync",
+const bytes = new TextEncoder().encode(
+  '{"v":1,"id":"a","kind":"notes/text","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"Once..."}}\n',
+);
+
+const parsed = parseLoreFiles([{ file: "story.lync", bytes }]);
+const tree = loreBranchTreeView(parsed);
+const memory = loreMemoryView(parsed);
+
+console.log(parsed.lines[0].class, tree.roots, memory.frontierIds);
+```
+
+`parseLoreFiles` classifies every physical line and keeps the original bytes,
+including garbage, damaged lines, nonconforming-but-carried lines, and conflict
+variants. `exportCarriedLoreBytes(parsed)` re-emits the carried bytes.
+
+`LoreUnion` performs the same union incrementally and can buffer children until
+their first missing parent arrives.
+
+## Storage
+
+```ts
+import { createMemoryEventStore } from "@lync/core/lore/memory-log";
+
+const store = createMemoryEventStore();
+await store.append({
+  v: 1,
+  id: "root",
+  kind: "lync/loom",
+  at: "2026-07-06T04:12:31Z",
+  author: { actor: "deepfates", via: "example@0.1" },
+  parents: [],
+  payload: { meta: { title: "Story" } },
 });
 
-const info = await client.looms.create(
-  textStoryLoomMeta({ title: "Written elsewhere" }),
-);
-const loom = await client.looms.open(info.id);
-
-const opening = await loom.appendTurn(
-  null,
-  { text: "Once..." },
-  { role: "prose" },
-);
-const next = await loom.appendTurn(
-  opening.id,
-  { text: " then..." },
-  { role: "prose" },
-);
-
-const url = client.references.toUrl(
-  client.references.thread(info.id, next.id),
-  new URL("https://loompad.lol/"),
-);
-```
-
-The URL is enough for a reader to open the loom if both sides can reach the same
-sync relay.
-
-## Quick Start
-
-```ts
-import { createTestLoomClient } from "@lync/client/testing";
-
-type TextPayload = { text: string };
-type LoomMeta = { title: string };
-type TurnMeta = {
-  role: "prose" | "revision";
-  revises?: string;
-};
-
-const client = createTestLoomClient<TextPayload, LoomMeta, TurnMeta>();
-
-const info = await client.looms.create({ title: "Story 1" });
-const loom = await client.looms.open(info.id);
-
-const seed = await loom.appendTurn(
-  null,
-  { text: "Once upon a time," },
-  { role: "prose" },
-);
-
-const next = await loom.appendTurn(
-  seed.id,
-  { text: " the bell rang." },
-  { role: "prose" },
-);
-
-await loom.appendTurn(seed.id, { text: " the tower burned." }, { role: "prose" });
-
-const thread = await loom.threadTo(next.id);
-const leaves = await loom.leaves();
-const snapshot = await loom.export();
-```
-
-## Parsing Lorefiles
-
-`@lync/core/lore/events` exposes the LORE-V0 line reader. It classifies every
-physical line and carries the original bytes, including garbage and damaged
-lines, so tooling can surface problems without silently discarding model output.
-
-```ts
-import { readFileSync } from "node:fs";
-import { parseLoreFiles, exportCarriedLoreBytes } from "@lync/core/lore/events";
-
-const parsed = parseLoreFiles([
-  { file: "history.lore", bytes: readFileSync("history.lore") },
-]);
-
-for (const line of parsed.lines) {
-  console.log(line.file, line.line, line.class, line.id, line.reason);
-}
-
-const carried = exportCarriedLoreBytes(parsed);
-```
-
-## Node Scripts
-
-Agents, importers, and command-line tools can write to the same kind of loom
-without depending on Textile:
-
-```ts
-import { createNodeLoomClient } from "@lync/client/node";
-import {
-  textStoryLoomMeta,
-  type TextStoryLoomMeta,
-  type TextStoryTurnMeta,
-  type TextStoryTurnPayload,
-} from "@lync/core/profiles/text-story";
-
-const client = createNodeLoomClient<
-  TextStoryTurnPayload,
-  TextStoryLoomMeta,
-  TextStoryTurnMeta
->({
-  storageDir: ".lync",
-  syncUrl: "ws://localhost:3030/lync",
+await store.append({
+  v: 1,
+  id: "turn-1",
+  kind: "lync/turn",
+  at: "2026-07-06T04:12:32Z",
+  author: { actor: "deepfates", via: "example@0.1" },
+  parents: ["root"],
+  payload: { payload: { text: "Once..." }, ordinal: 0 },
 });
 
-const info = await client.looms.create(
-  textStoryLoomMeta({ title: "Imported thread" }),
-);
-const loom = await client.looms.open(info.id);
-await loom.appendTurn(null, { text: "First imported post" });
-
-await client.close();
+console.log((await store.byRoot("root")).map((event) => event.body.id));
 ```
+
+The store API accepts raw lines through `union(line)` and structured event
+bodies through `append(event)`. It reports conflicts, pending parents, garbage,
+and accepted events without making file order meaningful.
+
+## Compatibility Looms
+
+The loom API remains for existing users and for the current Automerge-backed
+clients. It now has an event-store implementation:
+
+```ts
+import { createLoreLooms } from "@lync/core/lore/looms";
+import { createMemoryEventStore } from "@lync/core/lore/memory-log";
+
+const looms = createLoreLooms<{ text: string }, { title: string }>({
+  store: createMemoryEventStore(),
+  author: { actor: "deepfates", via: "example@0.1" },
+  createId: (() => {
+    let n = 0;
+    return () => `id-${++n}`;
+  })(),
+});
+
+const info = await looms.create({ title: "Story" });
+const loom = await looms.open(info.id);
+const first = await loom.appendTurn(null, { text: "Once..." });
+const next = await loom.appendTurn(first.id, { text: "Then..." });
+
+console.log((await loom.threadTo(next.id)).map((turn) => turn.payload.text));
+```
+
+## Migration
+
+`scripts/migrate-automerge-to-lync.ts` migrates old Automerge loom storage into
+the event-store implementation. Build first, then run the script against an
+Automerge storage directory and an output directory:
+
+```bash
+pnpm build
+node scripts/migrate-automerge-to-lync.ts <automerge-storage-dir> <out-dir>
+```
+
+The script writes a migration report as it goes, verifies migrated snapshots are
+isomorphic to the source loom shape, and records per-document failures instead
+of aborting the whole migration. Migrated roots are written as `.lync` files.
+The file event store reads both `.lync` and legacy `.lore` files so old
+exports can be mixed with newly migrated roots during a transition.
 
 ## Sync Server
 
-`@lync/sync-server` provides a small Automerge WebSocket relay. Its default
-WebSocket path is `/lync`, and the standalone server reports that full URL:
+`@lync/sync-server` provides the current Automerge WebSocket relay. Its default
+WebSocket path is `/lync`. The exported factory is `createLyncServer`.
 
-```ts
-import { createlyncServer } from "@lync/sync-server";
-
-const server = createlyncServer({
-  port: 3030,
-  storageDir: ".lync-relay",
-  authenticate(request) {
-    return request.headers.authorization === `Bearer ${process.env.LYNC_TOKEN}`;
-  },
-});
-
-console.log(server.url); // ws://127.0.0.1:3030/lync
-```
-
-`authenticate` is synchronous by design. Return `false` to reject an upgrade; if
-the predicate throws, lync rejects the upgrade instead of accepting it.
-
-## Browser Client
-
-Browser apps usually want looms, indexes, references, and one shared Automerge
-repo. `@lync/client/browser` provides that shape:
-
-```ts
-import { createBrowserLoomClient } from "@lync/client/browser";
-
-const client = createBrowserLoomClient<TextPayload, LoomMeta, TurnMeta>({
-  browser: {
-    indexedDb: { database: "my-app", store: "documents" },
-    broadcastChannel: { channelName: "my-app" },
-    syncPath: "/lync",
-  },
-});
-
-const info = await client.looms.create({ title: "Story 1" });
-const loom = await client.looms.open(info.id);
-const seed = await loom.appendTurn(null, { text: "Once" });
-
-const index = await client.indexes.create({ title: "My stories" });
-await index.addLoom(client.references.loom(info.id), { title: "Story 1" });
-
-const threadUrl = client.references.toUrl(
-  client.references.thread(info.id, seed.id),
-  window.location,
-);
-
-const ref = client.references.fromUrl(window.location);
-if (ref) {
-  const opened = await client.openReference(ref);
-  if (opened.kind === "thread") {
-    console.log(opened.thread);
-  }
-}
-```
-
-Default reference URLs use `?ref=<base64url-json>`. They intentionally do not
-include slugs or title hints. Human labels belong in app UI and index metadata;
-the reference itself is just the durable address.
-
-## Browser Bundling
-
-Automerge uses a WASM bundle. Vite consumers should include:
-
-```ts
-import wasm from "vite-plugin-wasm";
-import topLevelAwait from "vite-plugin-top-level-await";
-
-export default defineConfig({
-  plugins: [wasm(), topLevelAwait()],
-});
-```
-
-Packages expose subpaths so apps can import only the surface they need:
-
-```ts
-import { createNodeLoomClient } from "@lync/client/node";
-import { createAutomergeLooms } from "@lync/core/automerge";
-import { textStoryLoomMeta } from "@lync/core/profiles/text-story";
-import type { Loom, Turn } from "@lync/core/types";
-```
-
-The normal application path is `@lync/client/*`. Lower-level core and index
-adapter subpaths exist for custom runtimes and focused tests.
-
-## Vendoring Into Apps
-
-Until the packages are published, vendoring the workspace is a practical
-integration path. Keep it mechanical:
-
-- mirror this repo into the app under a clear directory such as
-  `vendor/lync`
-- exclude `.git`, `node_modules`, build output, and test-only files if the host
-  runner would pick them up
-- apply only app-specific import-path shims in the vendored copy
-- fold real library fixes back into this repo first, then re-vendor
-
-That keeps lync as the source of truth while still letting apps test against
-the exact library code they ship.
+`authenticate` is synchronous by design in the server API. Return `false` to
+reject an upgrade; if the predicate throws, lync rejects the upgrade instead of
+accepting it.
 
 ## Development
 
 ```bash
 pnpm install
-pnpm test
 pnpm build
+pnpm exec lync --help
+pnpm test
 pnpm verify
 ```
 
 `pnpm verify` runs tests, builds packages, and typechecks emitted package
 surfaces.
 
-## Status
-
-This repo is currently a v0.2 breaking cutover. The public model is
-`loom/turn/thread/reference/index`; the Automerge document schema still uses
-plain internal fields such as `root`, `nodes`, `children`, and `parentId`.
+For a fresh clone, `pnpm install && pnpm build` is the supported setup sequence.
+After that, `pnpm exec lync --help` should print the CLI help from the workspace
+root. `scripts/fresh-clone-smoke.sh` verifies that sequence in a temporary clone
+and runs the CLI story path: init, append, view, concatenate, merge, and verify.
