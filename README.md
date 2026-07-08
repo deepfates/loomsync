@@ -80,9 +80,9 @@ vocabulary.
 
 ```ts
 import { LoreUnion, exportCarriedLoreBytes, parseLoreFiles } from "@lync/core/lore/events";
-import { createFileEventStore } from "@lync/core/lore/file-log";
+import { createFileEventStore, createFileLoreLooms } from "@lync/core/lore/file-log";
 import { createIndexedDbEventStore } from "@lync/core/lore/idb-log";
-import { createLoreLooms, createFileLoreLooms, createBrowserLoreLooms } from "@lync/core/lore/looms";
+import { createLoreLooms, createBrowserLoreLooms } from "@lync/core/lore/looms";
 import { createMemoryEventStore } from "@lync/core/lore/memory-log";
 import { BaseEventStore, serializeLoreEvent } from "@lync/core/lore/store";
 import {
@@ -99,7 +99,8 @@ The seven format-layer package exports are:
   incremental union.
 - `@lync/core/lore/memory-log`: in-memory event store for tests and embedded
   runtimes.
-- `@lync/core/lore/file-log`: file-backed event store.
+- `@lync/core/lore/file-log`: file-backed event store and `createFileLoreLooms`
+  (node-only; keeps `node:fs`/`node:path` off the browser path).
 - `@lync/core/lore/idb-log`: IndexedDB-backed event store.
 - `@lync/core/lore/store`: base event-store contract and serialization helpers.
 - `@lync/core/lore/views`: branch tree, transcript, memory, and leaderboard

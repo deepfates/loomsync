@@ -20,7 +20,6 @@ import type {
   TurnId,
 } from "../types.js";
 import type { LoreEventBody } from "./events.js";
-import { createFileEventStore } from "./file-log.js";
 import { createIndexedDbEventStore, type IndexedDbEventStoreOptions } from "./idb-log.js";
 import type { EventStore, StoredEvent } from "./store.js";
 
@@ -142,14 +141,6 @@ export function createLoreLooms<
       return fold.loom;
     },
   };
-}
-
-export function createFileLoreLooms<
-  TPayload = unknown,
-  TLoomMeta = unknown,
-  TTurnMeta = unknown,
->(dir: string, options: Omit<LoreLoomsOptions, "store">): Looms<TPayload, TLoomMeta, TTurnMeta> {
-  return createLoreLooms({ ...options, store: createFileEventStore(dir) });
 }
 
 export function createBrowserLoreLooms<
