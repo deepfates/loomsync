@@ -37,8 +37,17 @@ export async function startLyncServe(options: LyncServeOptions): Promise<LyncSyn
     port: address.port,
     close: async () => {
       await relay.close();
-      await new Promise<void>((resolve, reject) => {
-        httpServer.close((error) => (error ? reject(error) : resolve()));
+      // Drop any lingering connections and release the listen handle. The
+      // close callback is unreliable under some runtimes (bun), so cap the
+      // wait and unref the server so it can never keep the loop alive.
+      (httpServer as { closeAllConnections?: () => void }).closeAllConnections?.();
+      httpServer.unref();
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 1000);
+        httpServer.close(() => {
+          clearTimeout(timer);
+          resolve();
+        });
       });
     },
   };

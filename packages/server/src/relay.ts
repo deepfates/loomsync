@@ -224,12 +224,38 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
     handleUpgrade,
     handleConnection,
     close: async () => {
-      for (const socket of sockets) socket.terminate();
-      await new Promise<void>((resolve) => wss.close(() => resolve()));
-      for (const pending of rooms.values()) {
-        const room = await pending;
-        await room.writeChain;
-      }
+      // Shutting the relay down must never hang. On some ws builds (notably
+      // under bun) socket teardown and wss.close() can block indefinitely, so
+      // the whole sequence races a hard cap; pending appends are flushed
+      // first since those resolve promptly.
+      const orderly = (async () => {
+        for (const pending of rooms.values()) {
+          try {
+            const room = await pending;
+            await room.writeChain;
+          } catch {
+            // A room that never recovered can't have pending writes worth waiting on.
+          }
+        }
+        for (const socket of sockets) {
+          try {
+            socket.terminate();
+          } catch {
+            // Already gone.
+          }
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 300);
+          wss.close(() => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+      })();
+      await Promise.race([
+        orderly,
+        new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+      ]);
     },
   };
 }
