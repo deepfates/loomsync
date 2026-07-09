@@ -186,6 +186,30 @@ const next = await loom.appendTurn(first.id, { text: "Then..." });
 console.log((await loom.threadTo(next.id)).map((turn) => turn.payload.text));
 ```
 
+## Sync
+
+Any lync file can converge with any other copy through a relay:
+
+```bash
+lync serve ./rooms --port 8787          # the relay: one append-only file per root
+lync sync story.lync ws://host:8787     # one-shot: push what it lacks, pull what you lack
+lync sync story.lync ws://host:8787 --follow   # stay live: stream both ways until Ctrl-C
+```
+
+The relay is deliberately dumb. Events are immutable and merge is union by
+id, so the protocol has no merge logic: five JSON frames (`sub`, `ev`,
+`live`, `presence`, `err`) that move canonical line bytes. The server never
+parses a line beyond extracting its id, stores each root as a plain `.lync`
+file you can read with any lync tool, and echoes accepted events to every
+subscriber — echoes are duplicate no-ops under union. `seq` is a per-root
+arrival counter used as a resume cursor (`<file>.sync.json`), so an offline
+client reconnects exactly where it left off. Same-id-different-body is never
+resolved: both variants are kept (the relay writes a `.conflicts` sidecar)
+and both sides are told loudly. Presence frames are relayed, never stored.
+A truncated final line after a crash is sealed and surfaced as damaged,
+never eaten. `--token T` on the server requires `Authorization: Bearer T`
+to connect.
+
 ## Development
 
 ```bash

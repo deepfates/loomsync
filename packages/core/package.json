@@ -82,6 +82,11 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js",
       "default": "./dist/types.js"
+    },
+    "./sync-protocol": {
+      "types": "./dist/sync-protocol.d.ts",
+      "import": "./dist/sync-protocol.js",
+      "default": "./dist/sync-protocol.js"
     }
   },
   "files": [

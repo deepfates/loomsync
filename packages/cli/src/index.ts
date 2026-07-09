@@ -42,6 +42,10 @@ export async function runLyncCli(argv: string[], io: LyncCliIO = {}): Promise<Ex
         return await init(rest, err);
       case "append":
         return await append(rest, io, out, err);
+      case "serve":
+        return await serveVerb(rest, out, err);
+      case "sync":
+        return await syncVerb(rest, out, err);
       default:
         err.write(`Unknown command '${verb}'. Run 'lync --help'.\n`);
         return 2;
@@ -62,6 +66,8 @@ function helpText(): string {
     "  view <file> [--as transcript|tree]",
     "  init [file]                     create an empty valid lync file",
     "  append <file>                   read JSON from stdin and append one event",
+    "  serve [dir] [--port N] [--token T]   run the line-sync relay over a directory of roots",
+    "  sync <file> <url> [--root R] [--follow]   converge a file with a relay; --follow stays live",
     "",
     "verify exits 0 only when every line is accepted. It exits 1 for nonconforming, garbage, damaged, conflict, pending, or graph issues, and 2 for usage or I/O errors.",
     "",
@@ -361,4 +367,99 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function serveVerb(
+  args: string[],
+  out: Pick<NodeJS.WriteStream, "write">,
+  err: Pick<NodeJS.WriteStream, "write">,
+): Promise<ExitCode> {
+  const { startLyncServe } = await import("./serve.js");
+  const positional: string[] = [];
+  let port: number | undefined;
+  let token: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--port") {
+      port = Number(args[++index]);
+      if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+        err.write("lync serve: --port must be an integer between 0 and 65535\n");
+        return 2;
+      }
+    } else if (arg === "--token") {
+      token = args[++index];
+      if (!token) {
+        err.write("lync serve: --token requires a value\n");
+        return 2;
+      }
+    } else {
+      positional.push(arg);
+    }
+  }
+  if (positional.length > 1) {
+    err.write("Usage: lync serve [dir] [--port N] [--token T]\n");
+    return 2;
+  }
+  const server = await startLyncServe({
+    dir: positional[0] ?? ".",
+    port,
+    token,
+    log: (message) => err.write(`${message}\n`),
+  });
+  out.write(`lync serve: listening on ws://localhost:${server.port} over ${positional[0] ?? "."}\n`);
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
+  });
+  await server.close();
+  out.write("lync serve: closed\n");
+  return 0;
+}
+
+async function syncVerb(
+  args: string[],
+  out: Pick<NodeJS.WriteStream, "write">,
+  err: Pick<NodeJS.WriteStream, "write">,
+): Promise<ExitCode> {
+  const { syncOnce } = await import("./sync.js");
+  const positional: string[] = [];
+  let root: string | undefined;
+  let follow = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--root") {
+      root = args[++index];
+      if (!root) {
+        err.write("lync sync: --root requires a value\n");
+        return 2;
+      }
+    } else if (arg === "--follow") {
+      follow = true;
+    } else {
+      positional.push(arg);
+    }
+  }
+  if (positional.length !== 2) {
+    err.write("Usage: lync sync <file> <url> [--root R] [--follow]\n");
+    return 2;
+  }
+  const stopper = new AbortController();
+  if (follow) {
+    process.once("SIGINT", () => stopper.abort());
+    process.once("SIGTERM", () => stopper.abort());
+  }
+  const result = await syncOnce({
+    file: positional[0],
+    url: positional[1],
+    root,
+    follow,
+    stopSignal: stopper.signal,
+    out,
+    err,
+  });
+  out.write(
+    `lync sync: sent ${result.sent}, received ${result.received} new, ` +
+      `${result.duplicates} duplicates, ${result.surfaced} surfaced, cursor at seq ${result.seq}\n`,
+  );
+  return result.conflicts > 0 ? 1 : 0;
 }
