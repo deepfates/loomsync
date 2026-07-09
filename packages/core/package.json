@@ -5,6 +5,16 @@
   "type": "module",
   "license": "MIT",
   "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepfates/lync.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/deepfates/lync#readme",
+  "bugs": "https://github.com/deepfates/lync/issues",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
