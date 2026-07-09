@@ -23,16 +23,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./automerge": {
-      "types": "./dist/automerge.d.ts",
-      "import": "./dist/automerge.js",
-      "default": "./dist/automerge.js"
-    },
-    "./browser": {
-      "types": "./dist/browser.d.ts",
-      "import": "./dist/browser.js",
-      "default": "./dist/browser.js"
-    },
     "./errors": {
       "types": "./dist/errors.d.ts",
       "import": "./dist/errors.js",
@@ -43,40 +33,40 @@
       "import": "./dist/memory.js",
       "default": "./dist/memory.js"
     },
-    "./lore/events": {
-      "types": "./dist/lore/events.d.ts",
-      "import": "./dist/lore/events.js",
-      "default": "./dist/lore/events.js"
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js",
+      "default": "./dist/events.js"
     },
-    "./lore/file-log": {
-      "types": "./dist/lore/file-log.d.ts",
-      "import": "./dist/lore/file-log.js",
-      "default": "./dist/lore/file-log.js"
+    "./file-log": {
+      "types": "./dist/file-log.d.ts",
+      "import": "./dist/file-log.js",
+      "default": "./dist/file-log.js"
     },
-    "./lore/idb-log": {
-      "types": "./dist/lore/idb-log.d.ts",
-      "import": "./dist/lore/idb-log.js",
-      "default": "./dist/lore/idb-log.js"
+    "./idb-log": {
+      "types": "./dist/idb-log.d.ts",
+      "import": "./dist/idb-log.js",
+      "default": "./dist/idb-log.js"
     },
-    "./lore/looms": {
-      "types": "./dist/lore/looms.d.ts",
-      "import": "./dist/lore/looms.js",
-      "default": "./dist/lore/looms.js"
+    "./looms": {
+      "types": "./dist/looms.d.ts",
+      "import": "./dist/looms.js",
+      "default": "./dist/looms.js"
     },
-    "./lore/memory-log": {
-      "types": "./dist/lore/memory-log.d.ts",
-      "import": "./dist/lore/memory-log.js",
-      "default": "./dist/lore/memory-log.js"
+    "./memory-log": {
+      "types": "./dist/memory-log.d.ts",
+      "import": "./dist/memory-log.js",
+      "default": "./dist/memory-log.js"
     },
-    "./lore/store": {
-      "types": "./dist/lore/store.d.ts",
-      "import": "./dist/lore/store.js",
-      "default": "./dist/lore/store.js"
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "import": "./dist/store.js",
+      "default": "./dist/store.js"
     },
-    "./lore/views": {
-      "types": "./dist/lore/views.d.ts",
-      "import": "./dist/lore/views.js",
-      "default": "./dist/lore/views.js"
+    "./views": {
+      "types": "./dist/views.d.ts",
+      "import": "./dist/views.js",
+      "default": "./dist/views.js"
     },
     "./profiles/text-story": {
       "types": "./dist/profiles/text-story.d.ts",
@@ -100,8 +90,5 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "dependencies": {
-    "@automerge/automerge": "^3.2.6"
   }
 }

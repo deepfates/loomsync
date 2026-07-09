@@ -59,7 +59,7 @@ describe("references", () => {
       globalThis.btoa = (value: string) => originalBuffer.from(value, "binary").toString("base64");
       globalThis.atob = (value: string) => originalBuffer.from(value, "base64").toString("binary");
 
-      const ref = threadRef("lore:loom", "turn-unicode-\u2713");
+      const ref = threadRef("lync:loom", "turn-unicode-\u2713");
       expect(decodeReference(encodeReference(ref))).toEqual(ref);
     } finally {
       globalThis.Buffer = originalBuffer;

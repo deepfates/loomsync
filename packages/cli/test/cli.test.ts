@@ -14,7 +14,7 @@ const vectorsRoot = join(
   "core",
   "test",
   "vectors",
-  "lore-vectors-draft",
+  "v0",
 );
 
 function event(fields: {

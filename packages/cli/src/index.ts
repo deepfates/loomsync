@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
 import {
-  parseLoreFiles,
-  type LoreLineClass,
-  type LoreLineDiagnostic,
-} from "lync-core/lore/events";
-import { loreBranchTreeView as coreTreeView, loreTranscriptView as coreTranscriptView } from "lync-core/lore/views";
+  parseLyncFiles,
+  type LyncLineClass,
+  type LyncLineDiagnostic,
+} from "lync-core/events";
+import { lyncBranchTreeView as coreTreeView, lyncTranscriptView as coreTranscriptView } from "lync-core/views";
 
 export interface LyncCliIO {
   stdout?: Pick<NodeJS.WriteStream, "write">;
@@ -17,7 +17,7 @@ export interface LyncCliIO {
 
 type ExitCode = 0 | 1 | 2;
 
-const classes: LoreLineClass[] = ["accepted", "nonconforming", "garbage", "damaged", "conflict-variant"];
+const classes: LyncLineClass[] = ["accepted", "nonconforming", "garbage", "damaged", "conflict-variant"];
 const textEncoder = new TextEncoder();
 
 export async function runLyncCli(argv: string[], io: LyncCliIO = {}): Promise<ExitCode> {
@@ -78,9 +78,9 @@ async function verify(
     return 2;
   }
 
-  const result = parseLoreFiles(await readInputs(args));
+  const result = parseLyncFiles(await readInputs(args));
   const totals = zeroCounts();
-  const byFile = new Map<string, Record<LoreLineClass, number>>();
+  const byFile = new Map<string, Record<LyncLineClass, number>>();
   for (const line of result.lines) {
     const counts = byFile.get(line.file) ?? zeroCounts();
     counts[line.class]++;
@@ -122,7 +122,7 @@ async function merge(
     return 2;
   }
 
-  const result = parseLoreFiles(await readInputs(files));
+  const result = parseLyncFiles(await readInputs(files));
   await writeFile(output, mergeBytes(result.lines, new Set(result.unionEventIds)));
   return 0;
 }
@@ -142,7 +142,7 @@ async function view(
     return 2;
   }
 
-  const result = parseLoreFiles(await readInputs(files));
+  const result = parseLyncFiles(await readInputs(files));
   if (as === "tree") {
     out.write(`${JSON.stringify(printableTreeView(coreTreeView(result)), null, 2)}\n`);
     return result.graphDiagnostics.length || result.conflictIds.length ? 1 : 0;
@@ -192,7 +192,7 @@ async function append(
   }
 
   const line = `${JSON.stringify(built.event)}\n`;
-  const parsed = parseLoreFiles([{ file: args[0], bytes: line }]).lines[0];
+  const parsed = parseLyncFiles([{ file: args[0], bytes: line }]).lines[0];
   if (parsed?.class !== "accepted") {
     err.write(`That JSON is not a valid event: ${parsed?.reason ?? "unknown validation failure"}.\n`);
     return 1;
@@ -238,9 +238,9 @@ function buildAppendEvent(value: unknown, io: LyncCliIO):
   return { ok: true, event };
 }
 
-function mergeBytes(lines: LoreLineDiagnostic[], unionIds: Set<string>): Uint8Array {
-  const eventChoices = new Map<string, LoreLineDiagnostic>();
-  const carried: LoreLineDiagnostic[] = [];
+function mergeBytes(lines: LyncLineDiagnostic[], unionIds: Set<string>): Uint8Array {
+  const eventChoices = new Map<string, LyncLineDiagnostic>();
+  const carried: LyncLineDiagnostic[] = [];
   for (const line of lines) {
     if (line.id && unionIds.has(line.id) && (line.class === "accepted" || line.class === "nonconforming")) {
       const existing = eventChoices.get(line.id);
@@ -257,7 +257,7 @@ function mergeBytes(lines: LoreLineDiagnostic[], unionIds: Set<string>): Uint8Ar
   return joinLines(ordered);
 }
 
-function joinLines(lines: LoreLineDiagnostic[]): Uint8Array {
+function joinLines(lines: LyncLineDiagnostic[]): Uint8Array {
   const chunks = lines.flatMap((line) => line.terminator ? [line.bytes, textEncoder.encode(line.terminator)] : [line.bytes]);
   const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
   const bytes = new Uint8Array(total);
@@ -273,19 +273,19 @@ async function readInputs(files: string[]) {
   return Promise.all(files.map(async (file) => ({ file, bytes: await readFile(file) })));
 }
 
-function zeroCounts(): Record<LoreLineClass, number> {
+function zeroCounts(): Record<LyncLineClass, number> {
   return { accepted: 0, nonconforming: 0, garbage: 0, damaged: 0, "conflict-variant": 0 };
 }
 
-function formatCounts(counts: Record<LoreLineClass, number>): string {
+function formatCounts(counts: Record<LyncLineClass, number>): string {
   return classes.map((kind) => `${kind}=${counts[kind]}`).join(" ");
 }
 
-function hasVerifyIssues(lines: LoreLineDiagnostic[], pending: number, obstacles: number): boolean {
+function hasVerifyIssues(lines: LyncLineDiagnostic[], pending: number, obstacles: number): boolean {
   return pending > 0 || obstacles > 0 || lines.some((line) => line.class !== "accepted");
 }
 
-function richness(line: LoreLineDiagnostic): number {
+function richness(line: LyncLineDiagnostic): number {
   return (line.sig ? 2 : 0) + (line.digest ? 1 : 0);
 }
 

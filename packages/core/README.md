@@ -5,8 +5,8 @@ event, files are merged losslessly by set-union, and every physical line is
 classified and kept.
 
 ```ts
-import { parseLoreFiles } from "lync-core/lore/events";
-import { createMemoryEventStore } from "lync-core/lore/memory-log";
+import { parseLyncFiles } from "lync-core/events";
+import { createMemoryEventStore } from "lync-core/memory-log";
 
 const store = createMemoryEventStore();
 await store.append({
@@ -19,7 +19,7 @@ await store.append({
   payload: { meta: { title: "Story" } },
 });
 
-const parsed = parseLoreFiles([{ file: "story.lync", bytes: line }]);
+const parsed = parseLyncFiles([{ file: "story.lync", bytes: line }]);
 console.log(parsed.unionEventIds);
 ```
 

@@ -1,0 +1,41 @@
+{
+  "fixture": "09-marked-at-semantics",
+  "inputs": [
+    "input.lync"
+  ],
+  "line_classifications": [
+    {
+      "class": "accepted",
+      "file": "input.lync",
+      "id": "018f0000-0000-7000-8000-000000000081",
+      "line": 1,
+      "marked_effective": "2026-07-07T01:02:03.123456Z"
+    },
+    {
+      "class": "accepted",
+      "file": "input.lync",
+      "id": "018f0000-0000-7000-8000-000000000082",
+      "line": 2
+    },
+    {
+      "class": "garbage",
+      "file": "input.lync",
+      "line": 3,
+      "reason": "at fails RFC3339 ABNF"
+    },
+    {
+      "class": "garbage",
+      "file": "input.lync",
+      "line": 4,
+      "reason": "marked fails RFC3339 ABNF"
+    }
+  ],
+  "union_event_ids": [
+    "018f0000-0000-7000-8000-000000000081",
+    "018f0000-0000-7000-8000-000000000082"
+  ],
+  "view_eligible_ids": [
+    "018f0000-0000-7000-8000-000000000081",
+    "018f0000-0000-7000-8000-000000000082"
+  ]
+}

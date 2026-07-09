@@ -1,0 +1,16 @@
+{
+  "fixture": "13-sig-without-digest",
+  "inputs": [
+    "input.lync"
+  ],
+  "line_classifications": [
+    {
+      "class": "garbage",
+      "file": "input.lync",
+      "line": 1,
+      "reason": "sig without digest is not a valid splice; reserved top-level sig remains in body"
+    }
+  ],
+  "union_event_ids": [],
+  "view_eligible_ids": []
+}

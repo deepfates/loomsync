@@ -1,7 +1,0 @@
-{"v":1,"id":"dup-depth","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"a"},"parents":[],"payload":{"x":1,"x":2}}
- {"v":1,"id":"leading-space","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"a"},"parents":[],"payload":{}}
-{"v":1,"id":"bad-kind","kind":"lorename","at":"2026-07-06T04:10:00Z","author":{"actor":"a"},"parents":[],"payload":{}}
-{"v":2,"id":"unimplemented-v","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"a"},"parents":[],"payload":{}}
-
-{"v":1,"id":"crlf","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"a"},"parents":[],"payload":{}}
-{"v":1,"id":"018f0000-0000-7000-8000-000000000031","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"good after bad"},"digest":"sha256:04f7cc982dee7f7a75f9d631f6248abe053005d5631610be4070e5e2e2c0f269"}

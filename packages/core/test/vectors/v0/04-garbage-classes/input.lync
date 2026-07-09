@@ -1,0 +1,7 @@
+{"v":1,"id":"dup-depth","kind":"lync/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"a"},"parents":[],"payload":{"x":1,"x":2}}
+ {"v":1,"id":"leading-space","kind":"lync/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"a"},"parents":[],"payload":{}}
+{"v":1,"id":"bad-kind","kind":"noslashname","at":"2026-07-06T04:10:00Z","author":{"actor":"a"},"parents":[],"payload":{}}
+{"v":2,"id":"unimplemented-v","kind":"lync/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"a"},"parents":[],"payload":{}}
+
+{"v":1,"id":"crlf","kind":"lync/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"a"},"parents":[],"payload":{}}
+{"v":1,"id":"018f0000-0000-7000-8000-000000000031","kind":"lync/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"good after bad"},"digest":"sha256:99c791638de72ffbc3113a2c829c7acf1d73f8542927fca61331a7f9f97f93aa"}
