@@ -75,6 +75,10 @@ The short version:
 - `lync-sync-server`: the current Automerge WebSocket relay.
 - `lync-index`: legacy synced indexes of loom references.
 
+Published on npm: `lync-core` and `lync-cli` (plus the `lync` command).
+The other packages live in this repo and are pre-release — install them
+from source if you want to experiment.
+
 ## Format-Layer Imports
 
 The format-layer subpaths currently keep their internal path names for
