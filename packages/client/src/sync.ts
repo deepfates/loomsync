@@ -93,6 +93,13 @@ function shouldUseNativeAdapter(options: WebSocketSyncOptions) {
   );
 }
 
+// A join (or the server's peer reply) can be lost even on an OPEN socket. An
+// open socket with no completed handshake must never hang silently: re-send
+// the idempotent join a bounded number of times, then fail loudly and hand
+// control to the reconnect path.
+const JOIN_RETRY_MS = 400;
+const MAX_JOIN_ATTEMPTS = 8;
+
 class ResilientWebSocketClientAdapter extends NetworkAdapter {
   private socket?: WebSocket;
   private ready = false;
@@ -102,6 +109,8 @@ class ResilientWebSocketClientAdapter extends NetworkAdapter {
   });
   private retryIntervalId?: IntervalId;
   private retryTimeoutId?: TimeoutId;
+  private joinRetryId?: IntervalId;
+  private joinAttempts = 0;
   private readonly retryInterval: number;
   private readonly mode: SyncMode;
   private abandonedHandshakeRetryAt = 0;
@@ -164,6 +173,7 @@ class ResilientWebSocketClientAdapter extends NetworkAdapter {
     if (this.retryTimeoutId) clearTimeout(this.retryTimeoutId);
     this.retryIntervalId = undefined;
     this.retryTimeoutId = undefined;
+    this.clearJoinRetry();
 
     if (this.socket) {
       this.closeSocket(this.socket);
@@ -197,10 +207,32 @@ class ResilientWebSocketClientAdapter extends NetworkAdapter {
   private onOpen = () => {
     this.clearRetryInterval();
     this.abandonedHandshakeRetryAt = 0;
+    this.joinAttempts = 0;
     this.join();
+    this.clearJoinRetry();
+    this.joinRetryId = setInterval(() => {
+      if (this.remotePeerId) {
+        this.clearJoinRetry();
+        return;
+      }
+      this.joinAttempts += 1;
+      if (this.joinAttempts >= MAX_JOIN_ATTEMPTS) {
+        this.clearJoinRetry();
+        this.reportError(
+          new Error(
+            `Peer handshake did not complete after ${MAX_JOIN_ATTEMPTS} join attempts; closing socket to trigger reconnect`,
+          ),
+          true,
+        );
+        if (this.socket) this.closeSocket(this.socket);
+        return;
+      }
+      this.join();
+    }, JOIN_RETRY_MS);
   };
 
   private onClose = () => {
+    this.clearJoinRetry();
     if (this.remotePeerId) {
       this.emit("peer-disconnected", { peerId: this.remotePeerId });
       this.remotePeerId = undefined;
@@ -257,8 +289,15 @@ class ResilientWebSocketClientAdapter extends NetworkAdapter {
 
     if (isPeerMessage(message)) {
       this.forceReady();
+      const isNewPeer = this.remotePeerId !== message.senderId;
       this.remotePeerId = message.senderId;
       this.clearRetryInterval();
+      this.clearJoinRetry();
+      if (!isNewPeer) {
+        // A re-sent join can earn a duplicate peer reply; the handshake is
+        // already complete, so don't re-announce the peer downstream.
+        return;
+      }
       this.options.onStatus?.({
         state: "connected",
         url: this.options.url,
@@ -285,6 +324,11 @@ class ResilientWebSocketClientAdapter extends NetworkAdapter {
   private clearRetryInterval() {
     if (this.retryIntervalId) clearInterval(this.retryIntervalId);
     this.retryIntervalId = undefined;
+  }
+
+  private clearJoinRetry() {
+    if (this.joinRetryId) clearInterval(this.joinRetryId);
+    this.joinRetryId = undefined;
   }
 
   private reportError(error: Error, recoverable: boolean) {
