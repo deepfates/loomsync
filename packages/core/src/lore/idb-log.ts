@@ -7,6 +7,15 @@ export interface IndexedDbEventStoreOptions {
 
 const VERSION = 1;
 
+/**
+ * A conflict/pending record as it lives in IndexedDB: the in-memory record plus
+ * the composite `[id, digest]` primary key the object store is keyed on. Events
+ * are stored as-is (keyed on their own `id`), so they need no wrapper row type.
+ */
+type StoreKey = [string, string];
+type ConflictRow = ConflictRecord & { key: StoreKey };
+type PendingRow = PendingRecord & { key: StoreKey };
+
 export class IndexedDbEventStore extends BaseEventStore {
   private readonly dbName: string;
   private readonly idb: IDBFactory;
@@ -52,10 +61,13 @@ export class IndexedDbEventStore extends BaseEventStore {
   protected override async persist(): Promise<void> {
     const db = await openDb(this.idb, this.dbName);
     const tx = db.transaction(["events", "conflicts", "pending"], "readwrite");
+    const records = this.dumpRecords();
+    const conflicts: ConflictRow[] = records.conflicts.map((record) => ({ ...record, key: [record.id, record.digest] }));
+    const pending: PendingRow[] = records.pending.map((record) => ({ ...record, key: [record.missingParent, record.digest] }));
     await Promise.all([
-      clearAndPut(tx.objectStore("events"), this.dumpRecords().events),
-      clearAndPut(tx.objectStore("conflicts"), this.dumpRecords().conflicts.map((record) => ({ ...record, key: [record.id, record.digest] }))),
-      clearAndPut(tx.objectStore("pending"), this.dumpRecords().pending.map((record) => ({ ...record, key: [record.missingParent, record.digest] }))),
+      clearAndPut(tx.objectStore("events"), records.events),
+      clearAndPut(tx.objectStore("conflicts"), conflicts),
+      clearAndPut(tx.objectStore("pending"), pending),
       txDone(tx),
     ]);
     db.close();
@@ -66,8 +78,8 @@ export class IndexedDbEventStore extends BaseEventStore {
     const tx = db.transaction(["events", "conflicts", "pending"], "readonly");
     const [events, conflicts, pending] = await Promise.all([
       getAll<StoreRecord>(tx.objectStore("events")),
-      getAll<ConflictRecord>(tx.objectStore("conflicts")),
-      getAll<PendingRecord>(tx.objectStore("pending")),
+      getAll<ConflictRow>(tx.objectStore("conflicts")),
+      getAll<PendingRow>(tx.objectStore("pending")),
       txDone(tx),
     ]);
     await this.loadRecords({ events, conflicts, pending });
@@ -104,13 +116,13 @@ function openDb(idb: IDBFactory, dbName: string): Promise<IDBDatabase> {
 
 function getAll<T>(store: IDBObjectStore): Promise<T[]> {
   return new Promise((resolve, reject) => {
-    const req = store.getAll();
-    req.onsuccess = () => resolve(req.result as T[]);
+    const req: IDBRequest<T[]> = store.getAll();
+    req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
 
-async function clearAndPut(store: IDBObjectStore, records: unknown[]): Promise<void> {
+async function clearAndPut<T>(store: IDBObjectStore, records: readonly T[]): Promise<void> {
   await requestDone(store.clear());
   for (const record of records) await requestDone(store.put(record));
 }
