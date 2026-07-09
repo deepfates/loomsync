@@ -46,7 +46,7 @@ function event(fields: {
   });
 }
 
-describe("LORE views", () => {
+describe("lync views", () => {
   it("computes a branch tree DAG from vector parent links", () => {
     const result = loadFixture("01-valid-events");
     const tree = lyncBranchTreeView(result);

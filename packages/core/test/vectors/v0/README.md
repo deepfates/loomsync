@@ -1,4 +1,4 @@
-# Lore v0 Draft Vector Suite
+# lync v0 draft vector suite
 
 Draft conformance vectors for the lync format spec (FORMAT.md), Part I. These are wrangling fixtures, not a
 ratified format for vector metadata.

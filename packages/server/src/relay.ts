@@ -142,8 +142,13 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
           room.lines.push(frame.line);
           room.seq += 1;
           const seq = room.seq;
-          await appendSerialized(room, join(options.dir, `${room.root}.lync`), frame.line);
+          const persisted = await appendSerialized(room, join(options.dir, `${room.root}.lync`), frame.line);
+          // Live delivery is the relay's primary job: fan out even if the disk
+          // write failed. A durability failure is surfaced loudly, never hidden.
           broadcast(room, { t: "ev", root: room.root, seq, line: frame.line });
+          if (!persisted.ok) {
+            broadcast(room, { t: "err", root: room.root, reason: "persist-failed", detail: id });
+          }
           return;
         }
         case "presence": {
@@ -188,17 +193,34 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
       await appendFile(path, "\n");
     }
     for (const line of lines) {
+      const id = extractLineId(line);
+      // A damaged or sealed-truncated line stays on disk (never eaten) but is
+      // not replayed to subscribers — it isn't a real event.
+      if (id === undefined) continue;
       room.lines.push(line);
       room.seq += 1;
-      const id = extractLineId(line);
-      if (id !== undefined && !room.byId.has(id)) room.byId.set(id, line);
+      if (!room.byId.has(id)) room.byId.set(id, line);
     }
     return room;
   }
 
-  function appendSerialized(room: Room, path: string, line: string): Promise<void> {
-    room.writeChain = room.writeChain.then(() => appendFile(path, `${line}\n`));
-    return room.writeChain;
+  // Serialize appends per room. A write failure must never wedge the room or
+  // vanish silently: clear any prior rejection so the next write still runs,
+  // keep the chain resolved so the room recovers, and report ok/failure to the
+  // caller so a persistence error can be surfaced loudly.
+  function appendSerialized(room: Room, path: string, line: string): Promise<{ ok: boolean }> {
+    const attempt = room.writeChain
+      .catch(() => undefined)
+      .then(() => appendFile(path, `${line}\n`))
+      .then(
+        () => ({ ok: true }),
+        (error) => {
+          log(`[lync relay] persist failed for ${path}: ${String(error)}`);
+          return { ok: false };
+        },
+      );
+    room.writeChain = attempt.then(() => undefined);
+    return attempt;
   }
 
   function broadcast(room: Room, frame: SyncFrame, except?: WebSocket): void {
@@ -224,36 +246,35 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
     handleUpgrade,
     handleConnection,
     close: async () => {
-      // Shutting the relay down must never hang. On some ws builds (notably
-      // under bun) socket teardown and wss.close() can block indefinitely, so
-      // the whole sequence races a hard cap; pending appends are flushed
-      // first since those resolve promptly.
-      const orderly = (async () => {
-        for (const pending of rooms.values()) {
-          try {
-            const room = await pending;
-            await room.writeChain;
-          } catch {
-            // A room that never recovered can't have pending writes worth waiting on.
-          }
+      // Flush every pending append first — writeChains are kept resolved (never
+      // rejected) by appendSerialized, so this settles promptly and no accepted
+      // write is dropped. This honors the durability promise in the interface.
+      for (const pending of rooms.values()) {
+        try {
+          const room = await pending;
+          await room.writeChain;
+        } catch {
+          // A room that never recovered has no pending writes worth waiting on.
         }
-        for (const socket of sockets) {
-          try {
-            socket.terminate();
-          } catch {
-            // Already gone.
-          }
+      }
+      // Then tear down sockets and the server under a hard cap: on some ws
+      // builds (notably bun) socket teardown and wss.close() can block
+      // indefinitely, so shutdown must never hang.
+      for (const socket of sockets) {
+        try {
+          socket.terminate();
+        } catch {
+          // Already gone.
         }
-        await new Promise<void>((resolve) => {
+      }
+      await Promise.race([
+        new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, 300);
           wss.close(() => {
             clearTimeout(timer);
             resolve();
           });
-        });
-      })();
-      await Promise.race([
-        orderly,
+        }),
         new Promise<void>((resolve) => setTimeout(resolve, 1500)),
       ]);
     },

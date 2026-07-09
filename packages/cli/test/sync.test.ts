@@ -115,7 +115,9 @@ describe("lync serve + sync", () => {
     const result = await syncOnce({ file, url, root: "crash", out: quiet, err: errs.io });
 
     expect(result.received).toBe(1); // the survivor
-    expect(result.surfaced).toBe(1); // the sealed damaged tail: surfaced, not appended
+    // The sealed damaged tail is surfaced via the recovery note, NOT replayed
+    // as a phantom event — so it is never mis-served, and never appended.
+    expect(result.surfaced).toBe(0);
     expect(errs.text()).toContain("sealed truncated final line");
     expect(idsOf(await readFile(file, "utf8"))).toEqual(["survivor"]);
     // The damaged bytes still live in the server file — sealed, never eaten.

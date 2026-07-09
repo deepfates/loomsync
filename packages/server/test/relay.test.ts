@@ -72,3 +72,55 @@ describe("createLyncRelay mounted on an existing server", () => {
     expect(thread.map((t) => t.payload.text)).toEqual(["hello from the app server"]);
   });
 });
+
+describe("createLyncRelay durability failures", () => {
+  it("surfaces a persist failure loudly, still broadcasts, and does not wedge the room", async () => {
+    const { chmod, mkdtemp } = await import("node:fs/promises");
+    const os = await import("node:os");
+    const nodePath = await import("node:path");
+    const { createServer } = await import("node:http");
+    const { createWebSocketTransport } = await import("lync-core/synced-store");
+
+    const dir = await mkdtemp(nodePath.join(os.tmpdir(), "lync-persist-"));
+    // Read-only dir: recovery (no existing files) succeeds, but every append fails.
+    await chmod(dir, 0o555);
+
+    const relay = createLyncRelay({ dir, log: () => {} });
+    const server = createServer((_r, res) => res.writeHead(200).end());
+    server.on("upgrade", (req, socket, head) => relay.handleUpgrade(req, socket, head));
+    const port = await new Promise<number>((resolve) => server.listen(0, () => {
+      const a = server.address();
+      resolve(typeof a === "object" && a ? a.port : 0);
+    }));
+    const url = `ws://localhost:${port}`;
+
+    const evs: string[] = [];
+    const errs: string[] = [];
+    const t = createWebSocketTransport(url, { reconnectMs: 0 });
+    t.onFrame((f) => {
+      if (f.t === "err") errs.push(f.reason);
+      if (f.t === "ev") evs.push(f.line);
+    });
+    const line = (id: string) => JSON.stringify({ v: 1, id, kind: "lync/artifact", at: "2026-07-08T21:00:00Z", author: { actor: "x" }, parents: [], payload: {} });
+
+    try {
+      t.send({ t: "sub", root: "wedged", since: 0 });
+      t.send({ t: "ev", root: "wedged", line: line("e1") });
+      await new Promise((r) => setTimeout(r, 250));
+      // Second write proves the first failure did NOT wedge the room.
+      t.send({ t: "ev", root: "wedged", line: line("e2") });
+      await new Promise((r) => setTimeout(r, 250));
+
+      // Both events were broadcast (live delivery survived the disk failure)...
+      expect(evs.filter((l) => l.includes('"e1"')).length).toBeGreaterThanOrEqual(1);
+      expect(evs.filter((l) => l.includes('"e2"')).length).toBeGreaterThanOrEqual(1);
+      // ...and each durability failure was surfaced loudly, never hidden.
+      expect(errs.filter((r) => r === "persist-failed").length).toBeGreaterThanOrEqual(2);
+    } finally {
+      t.close();
+      await relay.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await chmod(dir, 0o755);
+    }
+  });
+});

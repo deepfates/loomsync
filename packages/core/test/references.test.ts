@@ -14,10 +14,10 @@ import {
 describe("references", () => {
   it("roundtrips every reference kind through encoding", () => {
     const refs = [
-      loomRef("automerge:loom"),
-      turnRef("automerge:loom", "turn-1"),
-      threadRef("automerge:loom", "turn-1"),
-      indexRef("automerge:index"),
+      loomRef("lync:loom"),
+      turnRef("lync:loom", "turn-1"),
+      threadRef("lync:loom", "turn-1"),
+      indexRef("lync:index"),
     ];
 
     for (const ref of refs) {
@@ -36,7 +36,7 @@ describe("references", () => {
   });
 
   it("roundtrips through ?ref= urls without slug or title hints", () => {
-    const ref = threadRef("automerge:loom", "turn-1");
+    const ref = threadRef("lync:loom", "turn-1");
     const url = referenceToUrl(
       ref,
       new URL("https://loom.test/story?old=1#stale"),
