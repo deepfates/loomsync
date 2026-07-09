@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256.js";
 
 export type LoreLineClass =
   | "accepted"
@@ -733,10 +733,6 @@ function parseJsonNoDuplicateKeys(text: string): JsonParsed {
   const value = parseValue();
   if (pos !== text.length) throw new SyntaxError("bytes outside object");
   return { value };
-}
-
-function sha256Hex(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function bytesEqual(a: Uint8Array | undefined, b: Uint8Array | undefined): boolean {

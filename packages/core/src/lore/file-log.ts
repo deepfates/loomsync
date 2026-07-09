@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { Looms } from "../types.js";
+import { createLoreLooms, type LoreLoomsOptions } from "./looms.js";
 import { BaseEventStore, type GarbageRecord } from "./store.js";
 
 const STORE_FILE = "events.json";
@@ -98,6 +100,16 @@ export class FileEventStore extends BaseEventStore {
 
 export function createFileEventStore(dir: string): FileEventStore {
   return new FileEventStore({ dir });
+}
+
+// File-backed looms live here, not in looms.ts, so the browser-reachable
+// modules never statically import this node:fs/node:path file.
+export function createFileLoreLooms<
+  TPayload = unknown,
+  TLoomMeta = unknown,
+  TTurnMeta = unknown,
+>(dir: string, options: Omit<LoreLoomsOptions, "store">): Looms<TPayload, TLoomMeta, TTurnMeta> {
+  return createLoreLooms({ ...options, store: createFileEventStore(dir) });
 }
 
 function isEventFile(file: string): boolean {

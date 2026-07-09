@@ -1,5 +1,6 @@
 export * from "./errors.js";
-export * from "./lore/file-log.js";
+// The node:fs-backed file store lives only at the explicit "@lync/core/lore/file-log"
+// subpath so the main barrel stays importable in the browser with zero node builtins.
 export * from "./lore/idb-log.js";
 export * from "./lore/looms.js";
 export * from "./lore/memory-log.js";

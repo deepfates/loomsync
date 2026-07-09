@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import type { LoreEventBody } from "./events.js";
 import { parseLoreFiles } from "./events.js";
+import { sha256Hex } from "./sha256.js";
 
 export interface StoredEvent {
   body: LoreEventBody;
@@ -317,7 +317,7 @@ function stripSplice(line: string): string {
 }
 
 function bodyDigest(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
+  return sha256Hex(bytes);
 }
 
 function conflictKey(id: string, digest: string): string {
