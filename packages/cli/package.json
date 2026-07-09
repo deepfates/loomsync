@@ -37,7 +37,8 @@
   },
   "dependencies": {
     "lync-core": "workspace:*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "lync-server": "workspace:*"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1"

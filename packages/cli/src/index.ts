@@ -374,7 +374,7 @@ async function serveVerb(
   out: Pick<NodeJS.WriteStream, "write">,
   err: Pick<NodeJS.WriteStream, "write">,
 ): Promise<ExitCode> {
-  const { startLyncServe } = await import("./serve.js");
+  const { startLyncServe } = await import("lync-server");
   const positional: string[] = [];
   let port: number | undefined;
   let token: string | undefined;

@@ -1,33 +1,46 @@
-import { createServer, type IncomingMessage, type Server } from "node:http";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { decodeFrame, encodeFrame, extractLineId, type SyncFrame } from "lync-core/sync-protocol";
 
 /**
- * `lync serve` — the dumb event-union relay from the line-sync design.
+ * The lync line-sync relay — a dumb event-union relay, mountable on any Node
+ * HTTP server or run standalone.
  *
  * One append-only `<root>.lync` file per root. `seq` is the per-root count of
- * stored lines: a resume cursor, nothing more. The server never parses a line
- * beyond extracting its id. Accepted events fan out to every subscriber of
- * the root, sender included — echoes are duplicate no-ops under union.
- * Same-id-different-body is never resolved: both sides keep their bytes, the
- * variant line goes to a `<root>.conflicts` sidecar, and an err frame goes to
- * everyone. Presence frames are relayed and never stored. Nothing fails
- * invisibly: malformed input earns an err frame, damaged recovery is loud.
+ * stored lines: a resume cursor, nothing more. The relay never parses a line
+ * beyond extracting its id. Accepted events fan out to every subscriber of the
+ * root, sender included — echoes are duplicate no-ops under union. Same-id,
+ * different-body is never resolved: both sides keep their bytes, the variant
+ * goes to a `<root>.conflicts` sidecar, and an err frame goes to everyone.
+ * Presence is relayed, never stored. Nothing fails invisibly.
  */
 
-export interface LyncServeOptions {
+export interface LyncRelayOptions {
+  /** Directory of per-root append-only files. Created if absent. */
   dir: string;
-  port?: number;
+  /** If set, upgrades require `Authorization: Bearer <token>`. */
   token?: string;
+  /**
+   * Per-upgrade authorization. Return false to reject. Runs after the token
+   * check (if any). Use for cookie/session auth on an embedded relay.
+   */
+  authenticate?: (request: IncomingMessage) => boolean | Promise<boolean>;
+  /** Called with each wired socket; for connection counting and keepalive. */
+  onConnection?: (socket: WebSocket) => void;
   log?: (message: string) => void;
 }
 
-export interface LyncSyncServer {
-  port: number;
-  close: () => Promise<void>;
+export interface LyncRelay {
+  /** Handle an HTTP upgrade: authorize, upgrade, and wire the socket. */
+  handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void;
+  /** Wire a socket you upgraded yourself. */
+  handleConnection(socket: WebSocket): void;
+  /** Close all sockets and flush every pending append. */
+  close(): Promise<void>;
 }
 
 interface Room {
@@ -42,37 +55,44 @@ interface Room {
 
 const ROOT_NAME = /^[A-Za-z0-9._-]+$/;
 
-export async function startLyncServe(options: LyncServeOptions): Promise<LyncSyncServer> {
+export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   const log = options.log ?? ((message: string) => process.stderr.write(`${message}\n`));
-  await mkdir(options.dir, { recursive: true });
+  const dirReady = mkdir(options.dir, { recursive: true }).then(() => undefined);
   const rooms = new Map<string, Promise<Room>>();
-
-  const httpServer: Server = createServer((_request, response) => {
-    response.writeHead(404).end();
-  });
-  const socketServer = new WebSocketServer({ noServer: true });
   const sockets = new Set<WebSocket>();
+  const wss = new WebSocketServer({ noServer: true });
 
-  httpServer.on("upgrade", (request, socket, head) => {
-    if (options.token && !authorized(request, options.token)) {
-      log("[lync serve] rejected upgrade: bad or missing token");
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      socket.destroy();
+  function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
+    if (options.token && request.headers.authorization !== `Bearer ${options.token}`) {
+      reject(socket, "bad or missing token");
       return;
     }
-    socketServer.handleUpgrade(request, socket, head, (websocket) => {
-      socketServer.emit("connection", websocket, request);
-    });
-  });
+    if (!options.authenticate) {
+      wss.handleUpgrade(request, socket, head, (ws) => handleConnection(ws));
+      return;
+    }
+    Promise.resolve(options.authenticate(request)).then(
+      (ok) => {
+        if (ok) wss.handleUpgrade(request, socket, head, (ws) => handleConnection(ws));
+        else reject(socket, "authenticate() returned false");
+      },
+      (error) => reject(socket, `authenticate() threw: ${String(error)}`),
+    );
+  }
 
-  socketServer.on("connection", (socket: WebSocket) => {
+  function reject(socket: Duplex, why: string): void {
+    log(`[lync relay] rejected upgrade: ${why}`);
+    socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+    socket.destroy();
+  }
+
+  function handleConnection(socket: WebSocket): void {
     sockets.add(socket);
+    options.onConnection?.(socket);
     const subscribed = new Set<string>();
     // Frames from one socket are handled strictly in arrival order, so a
-    // client that pushes its lines and then subscribes is guaranteed to see
-    // any resulting errors before its backlog and `live`.
+    // client that pushes then subscribes sees any errors before its backlog.
     let frameChain = Promise.resolve();
-
     socket.on("message", (raw) => {
       const frame = decodeFrame(raw.toString());
       frameChain = frameChain.then(() => handleFrame(socket, subscribed, frame));
@@ -81,16 +101,13 @@ export async function startLyncServe(options: LyncServeOptions): Promise<LyncSyn
       sockets.delete(socket);
       void detach(socket, subscribed);
     });
-    socket.on("error", (error) => {
-      log(`[lync serve] socket error: ${String(error)}`);
-    });
-  });
+    socket.on("error", (error) => log(`[lync relay] socket error: ${String(error)}`));
+  }
 
   async function handleFrame(socket: WebSocket, subscribed: Set<string>, frame: SyncFrame): Promise<void> {
     try {
       switch (frame.t) {
         case "err":
-          // A decode failure or a client-reported error: answer loudly, never store.
           send(socket, frame.reason === "malformed-frame" || frame.reason === "unknown-frame-kind" ? frame : { t: "err", reason: "client-error-received", detail: frame.reason });
           return;
         case "sub": {
@@ -139,7 +156,7 @@ export async function startLyncServe(options: LyncServeOptions): Promise<LyncSyn
           return;
       }
     } catch (error) {
-      log(`[lync serve] frame handling failed: ${String(error)}`);
+      log(`[lync relay] frame handling failed: ${String(error)}`);
       send(socket, { t: "err", reason: "server-error", detail: String(error) });
     }
   }
@@ -150,7 +167,7 @@ export async function startLyncServe(options: LyncServeOptions): Promise<LyncSyn
     }
     let pending = rooms.get(root);
     if (!pending) {
-      pending = recoverRoom(root);
+      pending = dirReady.then(() => recoverRoom(root));
       rooms.set(root, pending);
     }
     return pending;
@@ -165,12 +182,9 @@ export async function startLyncServe(options: LyncServeOptions): Promise<LyncSyn
     const lines = text.split("\n");
     if (lines.at(-1) === "") lines.pop();
     if (!endsClean && lines.length > 0) {
-      // Kill-9 mid-append left a truncated tail. Seal it with a newline so
-      // future appends start clean; readers classify it as damaged. Loud,
-      // never eaten.
       const tail = lines.at(-1) ?? "";
       room.recoveryNote = `sealed truncated final line (${tail.length} bytes) as damaged`;
-      log(`[lync serve] ${root}: ${room.recoveryNote}`);
+      log(`[lync relay] ${root}: ${room.recoveryNote}`);
       await appendFile(path, "\n");
     }
     for (const line of lines) {
@@ -206,34 +220,18 @@ export async function startLyncServe(options: LyncServeOptions): Promise<LyncSyn
     }
   }
 
-  await new Promise<void>((resolve, reject) => {
-    httpServer.once("error", reject);
-    httpServer.listen(options.port ?? 0, () => resolve());
-  });
-  const address = httpServer.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("lync serve: could not determine listening port");
-  }
-
   return {
-    port: address.port,
+    handleUpgrade,
+    handleConnection,
     close: async () => {
       for (const socket of sockets) socket.terminate();
-      await new Promise<void>((resolve) => socketServer.close(() => resolve()));
-      await new Promise<void>((resolve, reject) => {
-        httpServer.close((error) => (error ? reject(error) : resolve()));
-      });
-      // Let every in-flight append land before we report closed.
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
       for (const pending of rooms.values()) {
         const room = await pending;
         await room.writeChain;
       }
     },
   };
-}
-
-function authorized(request: IncomingMessage, token: string): boolean {
-  return request.headers.authorization === `Bearer ${token}`;
 }
 
 function truncate(text: string): string {

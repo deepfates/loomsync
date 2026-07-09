@@ -26,6 +26,9 @@ importers:
       lync-core:
         specifier: workspace:*
         version: link:../core
+      lync-server:
+        specifier: workspace:*
+        version: link:../server
       ws:
         specifier: ^8.18.0
         version: 8.21.0
@@ -50,6 +53,19 @@ importers:
       lync-core:
         specifier: workspace:*
         version: link:../core
+
+  packages/server:
+    dependencies:
+      lync-core:
+        specifier: workspace:*
+        version: link:../core
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.0
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
 
 packages:
 

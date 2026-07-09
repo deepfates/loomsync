@@ -5,7 +5,7 @@ import path from "node:path";
 import { createMemoryEventStore } from "lync-core/memory-log";
 import { createLyncLooms, loomRootId } from "lync-core/looms";
 import { createSyncedStore, createWebSocketTransport } from "lync-core/synced-store";
-import { startLyncServe, type LyncSyncServer } from "../src/serve.js";
+import { startLyncServe, type LyncSyncServer } from "lync-server";
 
 /**
  * The embedded browser story, proven end to end: a real relay, two clients
