@@ -11,7 +11,8 @@
     "build": "pnpm -r build",
     "test": "vitest run",
     "typecheck": "pnpm build && pnpm -r typecheck",
-    "verify": "pnpm test && pnpm typecheck"
+    "guard:paths": "bash scripts/no-machine-local-paths.sh",
+    "verify": "pnpm guard:paths && pnpm test && pnpm typecheck"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
