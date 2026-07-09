@@ -18,6 +18,14 @@ export default defineConfig({
         find: /^lync-core$/,
         replacement: new URL("./packages/core/src/index.ts", import.meta.url).pathname,
       },
+      {
+        find: /^lync-index\/([a-z0-9-]+)$/,
+        replacement: new URL("./packages/index/src/", import.meta.url).pathname + "$1.ts",
+      },
+      {
+        find: /^lync-index$/,
+        replacement: new URL("./packages/index/src/index.ts", import.meta.url).pathname,
+      },
     ],
   },
   test: {

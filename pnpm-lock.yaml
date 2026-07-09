@@ -34,7 +34,22 @@ importers:
         specifier: ^8.18.1
         version: 8.18.1
 
+  packages/client:
+    dependencies:
+      lync-core:
+        specifier: workspace:*
+        version: link:../core
+      lync-index:
+        specifier: workspace:*
+        version: link:../index
+
   packages/core: {}
+
+  packages/index:
+    dependencies:
+      lync-core:
+        specifier: workspace:*
+        version: link:../core
 
 packages:
 

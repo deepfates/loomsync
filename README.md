@@ -68,9 +68,14 @@ The short version:
 
 ## Packages
 
-- `lync-core`: format parsing, event stores, computed views, references, and
-  the loom API. No runtime dependencies.
-- `lync-cli`: the `lync` command — `init`, `append`, `verify`, `merge`, `view`.
+- `lync-core`: format parsing, event stores, computed views, references, the
+  loom API, and live sync (`createSyncedStore`). No runtime dependencies.
+- `lync-cli`: the `lync` command — `init`, `append`, `verify`, `merge`, `view`,
+  `serve`, `sync`.
+- `lync-index`: an index of many looms, with reactive subscription. Depends
+  only on `lync-core`.
+- `lync-client`: the loom client — resolves references and opens looms and
+  indexes. Depends on `lync-core` and `lync-index`.
 
 ## Format-Layer Imports
 
@@ -209,6 +214,34 @@ and both sides are told loudly. Presence frames are relayed, never stored.
 A truncated final line after a crash is sealed and surfaced as damaged,
 never eaten. `--token T` on the server requires `Authorization: Bearer T`
 to connect.
+
+### Sync inside an app
+
+The same protocol runs in a browser or Node app with no CLI. Wrap any event
+store in `createSyncedStore`; looms and indexes built over it update live as
+collaborators append, because they already recompute through the store's
+`subscribe`:
+
+```ts
+import { createMemoryEventStore } from "lync-core/memory-log";
+import { createLyncLooms } from "lync-core/looms";
+import { createSyncedStore, createWebSocketTransport } from "lync-core/synced-store";
+
+const transport = createWebSocketTransport("wss://host/lync");
+const store = createSyncedStore(createMemoryEventStore(), transport, {
+  onStatus: (s) => console.log("sync:", s.connection, "live:", s.liveRoots),
+});
+const looms = createLyncLooms({ store, author: { actor: "alice" } });
+
+const loom = await looms.open(loomId);
+loom.subscribe(() => render(loom)); // fires on local AND remote turns
+await loom.appendTurn(parentId, { text: "typed live" });
+```
+
+Local appends are pushed to the relay; remote lines are ingested through the
+same `union` path and surface reactively. Offline appends queue and flush on
+reconnect; the store re-subscribes automatically. The transport is an
+interface — pass your own for tests or a non-WebSocket carrier.
 
 ## Development
 

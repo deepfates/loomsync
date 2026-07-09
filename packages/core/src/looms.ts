@@ -374,6 +374,17 @@ function rootId(id: LoomId): string | null {
   return id.startsWith(LYNC_PREFIX) ? id.slice(LYNC_PREFIX.length) : null;
 }
 
+/**
+ * The event-store root id for a loom. A loom id is a `lync:`-prefixed handle;
+ * its events live under the bare root. Apps use this to sync a loom's root on
+ * a synced store before opening it.
+ */
+export function loomRootId(loomId: LoomId): string {
+  const root = rootId(loomId);
+  if (!root) throw new Error(`not a lync loom id: ${loomId}`);
+  return root;
+}
+
 function validateAuthor(author: LyncAuthor): void {
   if (!author || typeof author.actor !== "string" || author.actor.length === 0) {
     throw new Error("Lync author.actor is required");

@@ -1,0 +1,43 @@
+{
+  "name": "lync-client",
+  "version": "0.2.0",
+  "description": "The lync loom client: resolve references, open looms and indexes.",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js",
+      "default": "./dist/types.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "lync-core": "workspace:*",
+    "lync-index": "workspace:*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepfates/lync.git",
+    "directory": "packages/client"
+  },
+  "homepage": "https://github.com/deepfates/lync#readme",
+  "bugs": "https://github.com/deepfates/lync/issues",
+  "publishConfig": {
+    "access": "public"
+  }
+}

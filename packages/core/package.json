@@ -87,6 +87,11 @@
       "types": "./dist/sync-protocol.d.ts",
       "import": "./dist/sync-protocol.js",
       "default": "./dist/sync-protocol.js"
+    },
+    "./synced-store": {
+      "types": "./dist/synced-store.d.ts",
+      "import": "./dist/synced-store.js",
+      "default": "./dist/synced-store.js"
     }
   },
   "files": [
