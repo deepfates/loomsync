@@ -1,5 +1,5 @@
 {
-  "name": "@lync/cli",
+  "name": "lync-cli",
   "version": "0.2.0",
   "description": "Command-line tools for lync files.",
   "type": "module",
@@ -36,6 +36,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@lync/core": "workspace:*"
+    "lync-core": "workspace:*"
   }
 }

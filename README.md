@@ -68,12 +68,12 @@ The short version:
 
 ## Packages
 
-- `@lync/core`: format parsing, event stores, computed views, references, and
+- `lync-core`: format parsing, event stores, computed views, references, and
   the compatibility loom API.
-- `@lync/client`: browser, Node, and test runtime clients for the compatibility
+- `lync-client`: browser, Node, and test runtime clients for the compatibility
   API.
-- `@lync/sync-server`: the current Automerge WebSocket relay.
-- `@lync/index`: legacy synced indexes of loom references.
+- `lync-sync-server`: the current Automerge WebSocket relay.
+- `lync-index`: legacy synced indexes of loom references.
 
 ## Format-Layer Imports
 
@@ -82,39 +82,39 @@ compatibility. Import them by path; do not treat those path segments as public
 vocabulary.
 
 ```ts
-import { LoreUnion, exportCarriedLoreBytes, parseLoreFiles } from "@lync/core/lore/events";
-import { createFileEventStore, createFileLoreLooms } from "@lync/core/lore/file-log";
-import { createIndexedDbEventStore } from "@lync/core/lore/idb-log";
-import { createLoreLooms, createBrowserLoreLooms } from "@lync/core/lore/looms";
-import { createMemoryEventStore } from "@lync/core/lore/memory-log";
-import { BaseEventStore, serializeLoreEvent } from "@lync/core/lore/store";
+import { LoreUnion, exportCarriedLoreBytes, parseLoreFiles } from "lync-core/lore/events";
+import { createFileEventStore, createFileLoreLooms } from "lync-core/lore/file-log";
+import { createIndexedDbEventStore } from "lync-core/lore/idb-log";
+import { createLoreLooms, createBrowserLoreLooms } from "lync-core/lore/looms";
+import { createMemoryEventStore } from "lync-core/lore/memory-log";
+import { BaseEventStore, serializeLoreEvent } from "lync-core/lore/store";
 import {
   loreBranchTreeView,
   loreLeaderboardView,
   loreMemoryView,
   loreTranscriptView,
-} from "@lync/core/lore/views";
+} from "lync-core/lore/views";
 ```
 
 The seven format-layer package exports are:
 
-- `@lync/core/lore/events`: line parsing, carried-byte export, downsets, and
+- `lync-core/lore/events`: line parsing, carried-byte export, downsets, and
   incremental union.
-- `@lync/core/lore/memory-log`: in-memory event store for tests and embedded
+- `lync-core/lore/memory-log`: in-memory event store for tests and embedded
   runtimes.
-- `@lync/core/lore/file-log`: file-backed event store and `createFileLoreLooms`
+- `lync-core/lore/file-log`: file-backed event store and `createFileLoreLooms`
   (node-only; keeps `node:fs`/`node:path` off the browser path).
-- `@lync/core/lore/idb-log`: IndexedDB-backed event store.
-- `@lync/core/lore/store`: base event-store contract and serialization helpers.
-- `@lync/core/lore/views`: branch tree, transcript, memory, and leaderboard
+- `lync-core/lore/idb-log`: IndexedDB-backed event store.
+- `lync-core/lore/store`: base event-store contract and serialization helpers.
+- `lync-core/lore/views`: branch tree, transcript, memory, and leaderboard
   view helpers.
-- `@lync/core/lore/looms`: compatibility loom API backed by event stores.
+- `lync-core/lore/looms`: compatibility loom API backed by event stores.
 
 ## Parse, Union, View
 
 ```ts
-import { parseLoreFiles } from "@lync/core/lore/events";
-import { loreBranchTreeView, loreMemoryView } from "@lync/core/lore/views";
+import { parseLoreFiles } from "lync-core/lore/events";
+import { loreBranchTreeView, loreMemoryView } from "lync-core/lore/views";
 
 const bytes = new TextEncoder().encode(
   '{"v":1,"id":"a","kind":"notes/text","at":"2026-07-06T04:12:31Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"Once..."}}\n',
@@ -137,7 +137,7 @@ their first missing parent arrives.
 ## Storage
 
 ```ts
-import { createMemoryEventStore } from "@lync/core/lore/memory-log";
+import { createMemoryEventStore } from "lync-core/lore/memory-log";
 
 const store = createMemoryEventStore();
 await store.append({
@@ -173,8 +173,8 @@ The loom API remains for existing users and for the current Automerge-backed
 clients. It now has an event-store implementation:
 
 ```ts
-import { createLoreLooms } from "@lync/core/lore/looms";
-import { createMemoryEventStore } from "@lync/core/lore/memory-log";
+import { createLoreLooms } from "lync-core/lore/looms";
+import { createMemoryEventStore } from "lync-core/lore/memory-log";
 
 const looms = createLoreLooms<{ text: string }, { title: string }>({
   store: createMemoryEventStore(),
@@ -212,7 +212,7 @@ exports can be mixed with newly migrated roots during a transition.
 
 ## Sync Server
 
-`@lync/sync-server` provides the current Automerge WebSocket relay. Its default
+`lync-sync-server` provides the current Automerge WebSocket relay. Its default
 WebSocket path is `/lync`. The exported factory is `createLyncServer`.
 
 `authenticate` is synchronous by design in the server API. Return `false` to

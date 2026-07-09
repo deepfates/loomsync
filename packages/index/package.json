@@ -1,5 +1,5 @@
 {
-  "name": "@lync/index",
+  "name": "lync-index",
   "version": "0.2.0",
   "description": "Index APIs for linked Lync looms.",
   "type": "module",
@@ -42,6 +42,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@lync/core": "workspace:*"
+    "lync-core": "workspace:*"
   }
 }

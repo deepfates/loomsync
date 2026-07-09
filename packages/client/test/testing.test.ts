@@ -5,7 +5,7 @@ import {
   type TextStoryLoomMeta,
   type TextStoryTurnMeta,
   type TextStoryTurnPayload,
-} from "@lync/core/profiles/text-story";
+} from "lync-core/profiles/text-story";
 import { createTestLoomClient } from "../src/testing.js";
 
 describe("test loom client", () => {

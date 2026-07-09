@@ -1,4 +1,4 @@
-import type { IndexId, LoomId, LoomReference } from "@lync/core";
+import type { IndexId, LoomId, LoomReference } from "lync-core";
 
 export interface LoomIndexInfo<TIndexMeta = unknown> {
   id: IndexId;

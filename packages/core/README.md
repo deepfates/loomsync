@@ -1,12 +1,12 @@
-# @lync/core
+# lync-core
 
 Core APIs for lync files: append-only loom logs where each line is one JSON
 event, files are merged losslessly by set-union, and every physical line is
 classified and kept.
 
 ```ts
-import { parseLoreFiles } from "@lync/core/lore/events";
-import { createMemoryEventStore } from "@lync/core/lore/memory-log";
+import { parseLoreFiles } from "lync-core/lore/events";
+import { createMemoryEventStore } from "lync-core/lore/memory-log";
 
 const store = createMemoryEventStore();
 await store.append({

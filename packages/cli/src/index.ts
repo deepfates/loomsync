@@ -4,8 +4,8 @@ import {
   parseLoreFiles,
   type LoreLineClass,
   type LoreLineDiagnostic,
-} from "@lync/core/lore/events";
-import { loreBranchTreeView as coreTreeView, loreTranscriptView as coreTranscriptView } from "@lync/core/lore/views";
+} from "lync-core/lore/events";
+import { loreBranchTreeView as coreTreeView, loreTranscriptView as coreTranscriptView } from "lync-core/lore/views";
 
 export interface LyncCliIO {
   stdout?: Pick<NodeJS.WriteStream, "write">;

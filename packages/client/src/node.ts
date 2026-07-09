@@ -10,11 +10,11 @@ import {
 import {
   createAutomergeLooms,
   type AutomergeLoomsOptions,
-} from "@lync/core/automerge";
+} from "lync-core/automerge";
 import {
   createAutomergeLoomIndexes,
   type AutomergeLoomIndexesOptions,
-} from "@lync/index/automerge";
+} from "lync-index/automerge";
 import { createLoomClient } from "./create.js";
 import {
   createWebSocketSyncAdapter,

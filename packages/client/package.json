@@ -1,5 +1,5 @@
 {
-  "name": "@lync/client",
+  "name": "lync-client",
   "version": "0.2.0",
   "description": "Runtime clients for Lync browser, Node, and tests.",
   "type": "module",
@@ -44,8 +44,8 @@
   "dependencies": {
     "@automerge/automerge-repo": "^2.5.5",
     "@automerge/automerge-repo-network-websocket": "^2.5.5",
-    "@lync/core": "workspace:*",
-    "@lync/index": "workspace:*",
+    "lync-core": "workspace:*",
+    "lync-index": "workspace:*",
     "isomorphic-ws": "^5.0.0"
   }
 }

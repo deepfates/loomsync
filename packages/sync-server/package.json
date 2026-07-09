@@ -1,5 +1,5 @@
 {
-  "name": "@lync/sync-server",
+  "name": "lync-sync-server",
   "version": "0.1.0",
   "description": "Automerge WebSocket sync relay for Lync.",
   "type": "module",

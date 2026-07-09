@@ -30,12 +30,12 @@ importers:
         specifier: ^14.0.0
         version: 14.0.0
     devDependencies:
-      '@lync/cli':
-        specifier: workspace:*
-        version: link:packages/cli
       '@types/node':
         specifier: ^22.14.0
         version: 22.19.17
+      lync-cli:
+        specifier: workspace:*
+        version: link:packages/cli
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -45,7 +45,7 @@ importers:
 
   packages/cli:
     dependencies:
-      '@lync/core':
+      lync-core:
         specifier: workspace:*
         version: link:../core
 
@@ -57,15 +57,15 @@ importers:
       '@automerge/automerge-repo-network-websocket':
         specifier: ^2.5.5
         version: 2.5.5
-      '@lync/core':
-        specifier: workspace:*
-        version: link:../core
-      '@lync/index':
-        specifier: workspace:*
-        version: link:../index
       isomorphic-ws:
         specifier: ^5.0.0
         version: 5.0.0(ws@8.20.0)
+      lync-core:
+        specifier: workspace:*
+        version: link:../core
+      lync-index:
+        specifier: workspace:*
+        version: link:../index
 
   packages/core:
     dependencies:
@@ -75,7 +75,7 @@ importers:
 
   packages/index:
     dependencies:
-      '@lync/core':
+      lync-core:
         specifier: workspace:*
         version: link:../core
 
