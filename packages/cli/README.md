@@ -13,5 +13,7 @@ lync view story.lync --as transcript
 lync merge story.lync other.lync -o merged.lync
 ```
 
-Five verbs: `init`, `append`, `verify`, `merge`, `view`. Run `lync --help` for
+Seven verbs: `init`, `append`, `verify`, `merge`, `view`, `serve` (the
+line-sync relay), and `sync` (converge a file with a relay, `--follow` to stay
+live). Run `lync --help` for
 usage. Full docs: https://github.com/deepfates/lync#readme

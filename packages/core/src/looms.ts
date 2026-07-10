@@ -8,6 +8,7 @@ import {
   unknownLoom,
 } from "./errors.js";
 import { assertJsonEncodable, cloneJson } from "./json.js";
+import { uuidv7 } from "./uuid.js";
 import type {
   Loom,
   LoomEvent,
@@ -448,6 +449,6 @@ function omitUndefined<T extends Record<string, unknown>>(value: T): T {
 }
 
 function createUuidLike(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+  // FORMAT.md: generators mint UUIDv7.
+  return uuidv7();
 }

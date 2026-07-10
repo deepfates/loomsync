@@ -13,8 +13,9 @@ events.
 
 ## Ninety-Second Story
 
-The shipped `lync` CLI has five verbs: `verify`, `merge`, `view`, `init`, and
-`append`. From a fresh clone, run these from the repo root after
+The shipped `lync` CLI has seven verbs: `init`, `append`, `verify`, `merge`,
+`view`, `serve`, and `sync`. This first mile uses the file verbs; see
+[Sync](#sync) for `serve` and `sync`. From a fresh clone, run these from the repo root after
 `pnpm install && pnpm build`; `pnpm exec lync` resolves the workspace binary. A
 published or globally installed package drops the `pnpm exec` prefix and you
 call `lync` directly. A complete first mile looks like this:
@@ -39,9 +40,6 @@ That line can be copied to another file, merged back later, verified byte for
 byte, and read by software that has never heard of `notes/text`. Unknown
 kinds are carried and traversed; meaning belongs to pacts layered above the
 format.
-
-TODO(positioning): pending the market-sweep verdict, tighten the public
-positioning paragraph against adjacent products using the old contested term.
 
 ## The Format
 
@@ -72,6 +70,9 @@ The short version:
   loom API, and live sync (`createSyncedStore`). No runtime dependencies.
 - `lync-cli`: the `lync` command — `init`, `append`, `verify`, `merge`, `view`,
   `serve`, `sync`.
+- `lync-server`: the line-sync relay — `createLyncRelay` to mount on your own
+  Node server, `attachLyncServer` for one path on an existing server,
+  `startLyncServe` standalone. Depends on `lync-core` and `ws`.
 - `lync-index`: an index of many looms, with reactive subscription. Depends
   only on `lync-core`.
 - `lync-client`: the loom client — resolves references and opens looms and

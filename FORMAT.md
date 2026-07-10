@@ -43,7 +43,7 @@ One shape. Everything is an instance of it.
 | Field | Required | Type | Meaning |
 |---|---|---|---|
 | `v` | yes | int | Envelope version. Writers never invent top-level fields; readers tolerate unknown ones as future-version diagnostics. |
-| `id` | yes | string; UUIDv7 is a writer obligation | Identity of the event, not the content. Two identical generations are two events. The embedded timestamp is untrusted input; `at` and `marked` carry time claims. Readers compare ids as opaque decoded strings and validate nothing about their shape. |
+| `id` | yes | string; UUID is a writer obligation | Identity of the event, not the content. Generators mint UUIDv7 (two identical generations are two events); importers transcribing pre-existing events may instead derive a deterministic UUIDv8 from source identity, so re-importing the same source is a union no-op and an upstream edit surfaces as a same-id conflict. The embedded timestamp is untrusted input; `at` and `marked` carry time claims. Readers compare ids as opaque decoded strings and validate nothing about their shape. |
 | `kind` | yes | string, `namespace/name` | What sort of event this is. Opaque to the protocol. Must contain at least one `/`; the part before the first `/` is the namespace and the rest is the name, both non-empty. The name may itself contain `/`. The namespace tells you whose pact defines it; the protocol never interprets it and there is no registry. |
 | `at` | yes | RFC 3339 | When the content came into being, as claimed by the author. A claim, not a proof. |
 | `author` | yes | object | Provenance: who made this, under whose responsibility, through what. |
@@ -374,7 +374,7 @@ not data.
 
 Five events: a paragraph, two alternatives, a judge's score, and a declared
 choice. Non-normative shorthand: ids are shown as `A` to `E` and digests are
-elided for readability only. Conforming writers mint UUIDv7 ids and should
+elided for readability only. Conforming generators mint UUIDv7 ids (importers may derive deterministic UUIDv8 — see the `id` row) and should
 splice digests per "Bytes Are Canonical."
 
 ```jsonl

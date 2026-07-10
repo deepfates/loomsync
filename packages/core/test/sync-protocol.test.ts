@@ -42,3 +42,14 @@ describe("cursor integrity (dee-inzc blocker)", () => {
     expect(decodeFrame('{"t":"live","root":"r","seq":7}').t).toBe("live");
   });
 });
+
+describe("uuidv7 minting", () => {
+  it("mints valid, time-ordered UUIDv7", async () => {
+    const { uuidv7 } = await import("lync-core/uuid");
+    const a = uuidv7(1_700_000_000_000);
+    const b = uuidv7(1_700_000_000_001);
+    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(a.slice(0, 13) < b.slice(0, 13) || a.slice(0, 13) === b.slice(0, 13)).toBe(true);
+    expect(uuidv7()).not.toEqual(uuidv7()); // two generations are two events
+  });
+});

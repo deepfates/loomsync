@@ -33,7 +33,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "lync-core": "workspace:*",
@@ -42,5 +43,8 @@
   },
   "devDependencies": {
     "@types/ws": "^8.18.1"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

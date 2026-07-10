@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { uuidv7 } from "lync-core/uuid";
 import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
 import {
   parseLyncFiles,
@@ -232,7 +232,7 @@ function buildAppendEvent(value: unknown, io: LyncCliIO):
 
   const event: Record<string, unknown> = {
     v: 1,
-    id: typeof value.id === "string" ? value.id : (io.randomId?.() ?? randomUUID()),
+    id: typeof value.id === "string" ? value.id : (io.randomId?.() ?? uuidv7()),
     kind: value.kind,
     at: typeof value.at === "string" ? value.at : (io.now?.() ?? new Date()).toISOString(),
     author: value.author,
