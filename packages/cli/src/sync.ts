@@ -2,7 +2,7 @@ import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { existsSync, watch } from "node:fs";
 import { basename } from "node:path";
 import WebSocket from "ws";
-import { decodeFrame, encodeFrame, extractLineId } from "lync-core/sync-protocol";
+import { decodeFrame, encodeFrame, extractLineId, isCursor } from "lync-core/sync-protocol";
 
 /**
  * `lync sync <file> <url>` — one-shot convergence with a `lync serve` relay.
@@ -206,10 +206,14 @@ async function readCursor(path: string, url: string, root: string): Promise<Curs
   if (!existsSync(path)) return { url, root, seq: 0 };
   try {
     const stored = JSON.parse(await readFile(path, "utf8")) as Cursor;
-    if (stored.url === url && stored.root === root && typeof stored.seq === "number" && stored.seq >= 0) {
+    // seq must be a nonnegative INTEGER: a fractional cursor (corrupt or
+    // hand-edited file) would make the relay skip the whole backlog and then
+    // get persisted as live — a permanent silent miss. Reset to 0 instead;
+    // re-receiving the backlog is a harmless union no-op.
+    if (stored.url === url && stored.root === root && isCursor(stored.seq)) {
       return stored;
     }
-    // Different server or root: the stored cursor means nothing here.
+    // Different server/root, or an unusable cursor: start from 0.
     return { url, root, seq: 0 };
   } catch {
     return { url, root, seq: 0 };

@@ -223,3 +223,76 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 5_000): Promis
   }
   throw new Error("waitFor: condition not met within timeout");
 }
+
+describe("cursor corruption recovery (dee-inzc blocker)", () => {
+  let server: LyncSyncServer | undefined;
+
+  afterEach(async () => {
+    await server?.close();
+    server = undefined;
+  });
+
+  it("a fractional cursor file resets to 0 and receives the FULL backlog, never skipping it", async () => {
+    const serverDir = await mkdtemp(path.join(os.tmpdir(), "lync-serve-"));
+    const clientDir = await mkdtemp(path.join(os.tmpdir(), "lync-client-"));
+    // Server already holds two events.
+    await writeFile(
+      path.join(serverDir, "story.lync"),
+      `${eventLine("root", [], "one")}\n${eventLine("late", ["root"], "two")}\n`,
+    );
+    server = await startLyncServe({ dir: serverDir, log: () => {} });
+    const url = `ws://localhost:${server.port}`;
+
+    const file = path.join(clientDir, "story.lync");
+    await writeFile(file, "");
+    // A corrupt (fractional) cursor — pre-fix this silently skipped the whole
+    // backlog and then persisted seq 2 as live: a permanent miss.
+    await writeFile(`${file}.sync.json`, `${JSON.stringify({ url, root: "story", seq: 0.5 })}\n`);
+
+    const result = await syncOnce({ file, url, root: "story", out: quiet, err: quiet });
+    expect(result.received).toBe(2); // full backlog delivered
+    expect(idsOf(await readFile(file, "utf8"))).toEqual(["late", "root"]);
+    const cursor = JSON.parse(await readFile(`${file}.sync.json`, "utf8")) as { seq: number };
+    expect(Number.isInteger(cursor.seq)).toBe(true);
+    expect(cursor.seq).toBe(2);
+  });
+});
+
+describe("conflict sidecar durability (dee-inzc major)", () => {
+  let server: LyncSyncServer | undefined;
+  let lockedDir: string | undefined;
+
+  afterEach(async () => {
+    if (lockedDir) await (await import("node:fs/promises")).chmod(lockedDir, 0o755).catch(() => {});
+    await server?.close();
+    server = undefined;
+  });
+
+  it("tells clients loudly when the conflict variant could NOT be retained", async () => {
+    const { chmod } = await import("node:fs/promises");
+    const serverDir = await mkdtemp(path.join(os.tmpdir(), "lync-serve-"));
+    const clientDir = await mkdtemp(path.join(os.tmpdir(), "lync-client-"));
+    server = await startLyncServe({ dir: serverDir, log: () => {} });
+    const url = `ws://localhost:${server.port}`;
+
+    const fileA = path.join(clientDir, "a.lync");
+    const fileB = path.join(clientDir, "b.lync");
+    await writeFile(fileA, `${eventLine("same", [], "first telling")}\n`);
+    await writeFile(fileB, `${eventLine("same", [], "second telling")}\n`);
+
+    // A's version lands and persists normally...
+    await syncOnce({ file: fileA, url, root: "duel", out: quiet, err: quiet });
+    // ...then the relay dir goes read-only, so the conflict sidecar CANNOT be written.
+    lockedDir = serverDir;
+    await chmod(serverDir, 0o555);
+
+    const errs = collect();
+    const result = await syncOnce({ file: fileB, url, root: "duel", out: quiet, err: errs.io });
+
+    expect(result.conflicts).toBe(1); // the conflict itself is still surfaced
+    // ...and so is the retention failure — the client must never believe the
+    // sidecar promise was kept when it wasn't.
+    expect(errs.text()).toContain("conflict-persist-failed");
+    expect(existsSync(path.join(serverDir, "duel.conflicts"))).toBe(false);
+  });
+});

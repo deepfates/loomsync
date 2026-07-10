@@ -30,3 +30,15 @@ describe("lync sync protocol frames", () => {
     expect(extractLineId('{"noid":true}')).toBeUndefined();
   });
 });
+
+describe("cursor integrity (dee-inzc blocker)", () => {
+  it("rejects fractional and non-finite cursors in sub/live/ev frames", () => {
+    expect(decodeFrame('{"t":"sub","root":"r","since":0.5}')).toMatchObject({ t: "err", reason: "malformed-sub" });
+    expect(decodeFrame('{"t":"sub","root":"r","since":null}')).toMatchObject({ t: "err", reason: "malformed-sub" });
+    expect(decodeFrame('{"t":"live","root":"r","seq":1.5}')).toMatchObject({ t: "err", reason: "malformed-live" });
+    expect(decodeFrame('{"t":"ev","root":"r","line":"{}","seq":2.5}')).toMatchObject({ t: "err", reason: "malformed-ev" });
+    // Integers still pass.
+    expect(decodeFrame('{"t":"sub","root":"r","since":0}').t).toBe("sub");
+    expect(decodeFrame('{"t":"live","root":"r","seq":7}').t).toBe("live");
+  });
+});

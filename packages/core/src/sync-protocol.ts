@@ -54,6 +54,14 @@ export type SyncFrame = SubFrame | EvFrame | LiveFrame | PresenceFrame | ErrFram
 
 const FRAME_KINDS = new Set(["sub", "ev", "live", "presence", "err"]);
 
+/**
+ * A resume cursor / sequence number: a nonnegative integer. Fractional or
+ * non-finite values must never pass — they index into backlogs downstream.
+ */
+export function isCursor(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
 export function encodeFrame(frame: SyncFrame): string {
   return JSON.stringify(frame);
 }
@@ -79,25 +87,31 @@ export function decodeFrame(raw: string | Uint8Array): SyncFrame {
   }
   switch (frame.t) {
     case "sub":
-      if (typeof frame.root !== "string" || typeof frame.since !== "number" || frame.since < 0) {
+      // Cursors are array indices and resume positions: a fractional or
+      // non-finite `since` silently skips the backlog downstream (lines[0.5]
+      // is undefined), so anything but a nonnegative integer is malformed.
+      if (typeof frame.root !== "string" || !isCursor(frame.since)) {
         return { t: "err", reason: "malformed-sub" };
       }
-      return { t: "sub", root: frame.root, since: frame.since };
+      return { t: "sub", root: frame.root, since: frame.since as number };
     case "ev":
       if (typeof frame.root !== "string" || typeof frame.line !== "string") {
         return { t: "err", reason: "malformed-ev" };
+      }
+      if (frame.seq !== undefined && !isCursor(frame.seq)) {
+        return { t: "err", reason: "malformed-ev", detail: "seq must be a nonnegative integer" };
       }
       return {
         t: "ev",
         root: frame.root,
         line: frame.line,
-        ...(typeof frame.seq === "number" ? { seq: frame.seq } : {}),
+        ...(frame.seq !== undefined ? { seq: frame.seq as number } : {}),
       };
     case "live":
-      if (typeof frame.root !== "string" || typeof frame.seq !== "number") {
+      if (typeof frame.root !== "string" || !isCursor(frame.seq)) {
         return { t: "err", reason: "malformed-live" };
       }
-      return { t: "live", root: frame.root, seq: frame.seq };
+      return { t: "live", root: frame.root, seq: frame.seq as number };
     case "presence":
       if (typeof frame.root !== "string") {
         return { t: "err", reason: "malformed-presence" };

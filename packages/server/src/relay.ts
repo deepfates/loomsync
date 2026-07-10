@@ -133,9 +133,15 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
           const existing = room.byId.get(id);
           if (existing !== undefined) {
             if (existing === frame.line) return; // duplicate: a no-op by union
-            await appendSerialized(room, join(options.dir, `${room.root}.conflicts`), frame.line);
+            const kept = await appendSerialized(room, join(options.dir, `${room.root}.conflicts`), frame.line);
             broadcast(room, { t: "err", root: room.root, reason: "same-id-conflict", detail: id }, socket);
             send(socket, { t: "err", root: room.root, reason: "same-id-conflict", detail: id });
+            if (!kept.ok) {
+              // The variant bytes were NOT retained — clients must not believe
+              // the sidecar promise was kept. Loud, to everyone, exactly once.
+              broadcast(room, { t: "err", root: room.root, reason: "conflict-persist-failed", detail: id }, socket);
+              send(socket, { t: "err", root: room.root, reason: "conflict-persist-failed", detail: id });
+            }
             return;
           }
           room.byId.set(id, frame.line);
