@@ -1,7 +1,7 @@
 {
   "name": "lync-server",
   "version": "0.2.0",
-  "description": "The lync line-sync relay: mountable on any Node server, or run standalone.",
+  "description": "The lync line-sync relay: mount on any Node server, or run standalone. Stores each root as a plain .lync file.",
   "type": "module",
   "license": "MIT",
   "sideEffects": false,
@@ -41,5 +41,16 @@
   },
   "engines": {
     "node": ">=22"
-  }
+  },
+  "keywords": [
+    "lync",
+    "jsonl",
+    "append-only",
+    "event-log",
+    "crdt-adjacent",
+    "local-first",
+    "websocket",
+    "relay",
+    "sync-server"
+  ]
 }

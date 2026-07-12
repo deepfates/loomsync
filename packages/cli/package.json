@@ -1,7 +1,7 @@
 {
   "name": "lync-cli",
   "version": "0.2.0",
-  "description": "Command-line tools for lync files.",
+  "description": "The lync command: init, append, verify, merge, view, serve, sync for .lync event-log files.",
   "type": "module",
   "license": "MIT",
   "sideEffects": false,
@@ -46,5 +46,16 @@
   },
   "engines": {
     "node": ">=22"
-  }
+  },
+  "keywords": [
+    "lync",
+    "jsonl",
+    "append-only",
+    "event-log",
+    "crdt-adjacent",
+    "local-first",
+    "cli",
+    "sync",
+    "merge"
+  ]
 }

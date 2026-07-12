@@ -39,7 +39,10 @@ Under those verbs, every line has the same envelope:
 That line can be copied to another file, merged back later, verified byte for
 byte, and read by software that has never heard of `notes/text`. Unknown
 kinds are carried and traversed; meaning belongs to pacts layered above the
-format.
+format — see [pacts/import.md](./pacts/import.md) (imports are transcription:
+deterministic ids, provenance preserved, zero silent drops) and
+[pacts/export.md](./pacts/export.md) (exports are projections of the event
+log, including training data).
 
 ## The Format
 

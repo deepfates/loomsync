@@ -48,5 +48,16 @@
   },
   "engines": {
     "node": ">=22"
-  }
+  },
+  "keywords": [
+    "lync",
+    "jsonl",
+    "append-only",
+    "event-log",
+    "crdt-adjacent",
+    "local-first",
+    "client",
+    "loom",
+    "references"
+  ]
 }
