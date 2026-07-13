@@ -5,8 +5,8 @@ meaning should land in pacts, not in the envelope.
 
 ## Now
 
-- First public release of the five packages: `lync-core`, `lync-cli`,
-  `lync-index`, `lync-client`, `lync-server`.
+- First public release of the one package: `lync-core` (library, indexes,
+  client, relay, and the `lync` command).
 - Keep `FORMAT.md` and the test vectors aligned as the reference other
   languages can port.
 

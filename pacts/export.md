@@ -1,7 +1,7 @@
 # Export Pact
 
 Status: v0, and younger than the import pact. The view functions it names are
-shipped (`packages/core/src/views.ts`); the export file formats built on them
+shipped (`src/views.ts`); the export file formats built on them
 are still settling. The principles are law; the column schemas are early.
 
 An export is a projection: a view computed over the event set, written down
