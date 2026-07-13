@@ -25,6 +25,13 @@ export interface SyncStatus {
   liveRoots: string[];
   /** Ids that arrived as same-id-different-body conflicts, surfaced never resolved. */
   conflicts: string[];
+  /**
+   * Every ingest failure, surfaced never swallowed: a remote line the local
+   * store could not durably accept (store write threw) or rejected as
+   * garbage. A store-write failure also freezes the root's resume cursor so
+   * the line is re-fetched on the next resubscribe instead of being skipped.
+   */
+  failures: string[];
 }
 
 export interface SyncTransport {
@@ -61,6 +68,24 @@ export function createSyncedStore(
   const liveRoots = new Set<string>();
   const cursors = new Map<string, number>();
   const conflicts = new Set<string>();
+  const failures: string[] = [];
+  // Server log generation per root. A cursor is only meaningful inside the
+  // generation that issued it (a failed relay disk write still consumes a
+  // seq, so a restarted server's recovered log can sit BEHIND our cursor).
+  // On a generation change the cursor resets to 0 and we resubscribe; union
+  // makes the re-download duplicate no-ops.
+  const generations = new Map<string, string>();
+  // Roots whose cursor is frozen because a union failed (store write threw):
+  // the cursor must not advance past the hole, or the line would be skipped
+  // forever. Cleared on resync — the resubscribe re-fetches from the frozen
+  // cursor and each refetched line advances it again as its union succeeds.
+  const stalledRoots = new Set<string>();
+  // Outstanding `sub` frames per root: each sub is answered by exactly one
+  // `live`, in order. While a generation-reset sub is stacked behind an
+  // earlier one (count > 1), cursor advances are suppressed — frames from the
+  // superseded sub carry seqs the reset backlog has not re-covered yet, and
+  // trusting them would re-poison the freshly reset cursor.
+  const pendingLives = new Map<string, number>();
   let connection: SyncConnectionState = transport.state;
 
   const emitStatus = () => {
@@ -68,6 +93,7 @@ export function createSyncedStore(
       connection,
       liveRoots: [...liveRoots],
       conflicts: [...conflicts],
+      failures: [...failures],
     });
   };
 
@@ -99,6 +125,12 @@ export function createSyncedStore(
     for (const event of await inner.byRoot(rootId)) {
       pushLine(rootId, event.bytes);
     }
+    // A frozen cursor thaws here: the sub below re-fetches from it, and each
+    // refetched line advances it again as its union succeeds.
+    stalledRoots.delete(rootId);
+    // A fresh connection: any lives owed by subs on the dead connection will
+    // never arrive, so the count restarts at this sub's one.
+    pendingLives.set(rootId, 1);
     transport.send({ t: "sub", root: rootId, since: cursors.get(rootId) ?? 0 });
   }
 
@@ -112,19 +144,78 @@ export function createSyncedStore(
     emitStatus();
   });
 
-  transport.onFrame((frame) => {
+  /**
+   * Returns true when the server's generation differs from the one this root's
+   * cursor belongs to — in which case the cursor has been reset to 0 and a
+   * fresh `sub` from 0 is already on the wire. Frames without gen (old
+   * servers) never trigger a reset.
+   */
+  const generationChanged = (root: string, gen: string | undefined): boolean => {
+    if (gen === undefined) return false;
+    const known = generations.get(root);
+    if (known === gen) return false;
+    generations.set(root, gen);
+    if (known === undefined) return false; // first sighting: adopt
+    failures.push(`generation changed for ${root} (${known} -> ${gen}); resyncing from 0`);
+    cursors.set(root, 0);
+    stalledRoots.delete(root);
+    pendingLives.set(root, (pendingLives.get(root) ?? 0) + 1);
+    emitStatus();
+    transport.send({ t: "sub", root, since: 0 });
+    return true;
+  };
+
+  const advanceCursor = (root: string, seq: number) => {
+    if (stalledRoots.has(root)) return; // frozen behind a failed union
+    if ((pendingLives.get(root) ?? 0) > 1) return; // a reset-sub's backlog is still owed
+    cursors.set(root, Math.max(cursors.get(root) ?? 0, seq));
+  };
+
+  async function handleFrame(frame: SyncFrame): Promise<void> {
     switch (frame.t) {
       case "ev": {
         // Remote line: ingest through union WITHOUT re-pushing (the relay has
-        // already fanned it out). Subscribers fire via the inner store.
-        void inner.union(frame.line);
-        if (typeof frame.seq === "number") {
-          cursors.set(frame.root, Math.max(cursors.get(frame.root) ?? 0, frame.seq));
+        // already fanned it out). Subscribers fire via the inner store. The
+        // union is awaited and inspected BEFORE the cursor advances — a line
+        // the local store failed to accept must be re-fetched, never skipped.
+        generationChanged(frame.root, frame.gen);
+        let outcome: AppendResult;
+        try {
+          outcome = await inner.union(frame.line);
+        } catch (error) {
+          // Store write failed: the line is NOT durable locally. Freeze the
+          // cursor so the next resubscribe re-fetches it, and scream.
+          failures.push(`store failed to ingest a synced line for ${frame.root}: ${String(error)}`);
+          stalledRoots.add(frame.root);
+          emitStatus();
+          return;
         }
+        switch (outcome.status) {
+          case "conflict":
+            conflicts.add(outcome.event.body.id);
+            emitStatus();
+            break;
+          case "garbage":
+            // Unusable bytes stay unusable on any re-fetch: surfaced loudly,
+            // and the cursor may advance past them.
+            failures.push(`synced line rejected as garbage for ${frame.root}: ${outcome.reason}`);
+            emitStatus();
+            break;
+          default:
+            break; // added / duplicate / buffered: durably in the store's hands
+        }
+        if (typeof frame.seq === "number") advanceCursor(frame.root, frame.seq);
         return;
       }
       case "live": {
-        cursors.set(frame.root, Math.max(cursors.get(frame.root) ?? 0, frame.seq));
+        // A stale live is not live: either its generation is dead (the
+        // resubscribe from 0 is already on the wire) or it answers a sub a
+        // generation reset has since superseded. Wait for the real one.
+        const changed = generationChanged(frame.root, frame.gen);
+        const outstanding = Math.max(0, (pendingLives.get(frame.root) ?? 1) - 1);
+        pendingLives.set(frame.root, outstanding);
+        if (changed || outstanding > 0) return;
+        advanceCursor(frame.root, frame.seq);
         liveRoots.add(frame.root);
         emitStatus();
         return;
@@ -143,6 +234,19 @@ export function createSyncedStore(
       default:
         return;
     }
+  }
+
+  // Frames apply strictly in arrival order: each union is awaited before the
+  // next frame is touched, so a slow union can never let a later frame (or a
+  // `live` cursor jump) leapfrog a failure. handleFrame never rejects — the
+  // catch above is the only throw path and it returns — but the chain guards
+  // anyway so one surprise cannot wedge sync forever.
+  let frameChain: Promise<void> = Promise.resolve();
+  transport.onFrame((frame) => {
+    frameChain = frameChain.then(
+      () => handleFrame(frame),
+      () => handleFrame(frame),
+    );
   });
 
   return {
@@ -170,7 +274,7 @@ export function createSyncedStore(
     ...(inner.diagnostics ? { diagnostics: () => inner.diagnostics!() } : {}),
     syncRoot: ensureSynced,
     presence: (root, data) => transport.send({ t: "presence", root, data }),
-    status: () => ({ connection, liveRoots: [...liveRoots], conflicts: [...conflicts] }),
+    status: () => ({ connection, liveRoots: [...liveRoots], conflicts: [...conflicts], failures: [...failures] }),
     close: () => transport.close(),
   };
 }
