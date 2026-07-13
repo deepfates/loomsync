@@ -43,6 +43,33 @@ describe("cursor integrity (dee-inzc blocker)", () => {
   });
 });
 
+describe("log generation field (dee-u6tq)", () => {
+  it("round-trips gen on ev and live frames", () => {
+    const frames: SyncFrame[] = [
+      { t: "ev", root: "story", line: '{"id":"a"}', seq: 3, gen: "gen-1" },
+      { t: "live", root: "story", seq: 7, gen: "gen-1" },
+    ];
+    for (const frame of frames) {
+      expect(decodeFrame(encodeFrame(frame))).toEqual(frame);
+    }
+  });
+
+  it("stays tolerant of gen's absence — old peers decode fine, both directions", () => {
+    // Old server -> new client: no gen on the wire.
+    expect(decodeFrame('{"t":"ev","root":"r","line":"{}","seq":2}')).toEqual({ t: "ev", root: "r", line: "{}", seq: 2 });
+    expect(decodeFrame('{"t":"live","root":"r","seq":7}')).toEqual({ t: "live", root: "r", seq: 7 });
+    // New client -> old server: encoding without gen adds nothing.
+    expect(encodeFrame({ t: "ev", root: "r", line: "{}" })).not.toContain("gen");
+    // An unknown extra field from a NEWER peer is dropped, not fatal.
+    expect(decodeFrame('{"t":"live","root":"r","seq":7,"gen":"g","future":true}')).toEqual({ t: "live", root: "r", seq: 7, gen: "g" });
+  });
+
+  it("rejects a non-string gen — a cursor reset must never act on noise", () => {
+    expect(decodeFrame('{"t":"ev","root":"r","line":"{}","seq":2,"gen":42}')).toMatchObject({ t: "err", reason: "malformed-ev" });
+    expect(decodeFrame('{"t":"live","root":"r","seq":7,"gen":{}}')).toMatchObject({ t: "err", reason: "malformed-live" });
+  });
+});
+
 describe("uuidv7 minting", () => {
   it("mints valid, time-ordered UUIDv7", async () => {
     const { uuidv7 } = await import("@deepfates/lync/uuid");

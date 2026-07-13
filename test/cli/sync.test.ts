@@ -258,6 +258,107 @@ describe("cursor corruption recovery (dee-inzc blocker)", () => {
   });
 });
 
+describe("log generation (dee-u6tq): a cursor is only meaningful inside the generation that issued it", () => {
+  let server: LyncSyncServer | undefined;
+  let lockedFile: string | undefined;
+
+  afterEach(async () => {
+    if (lockedFile) await (await import("node:fs/promises")).chmod(lockedFile, 0o644).catch(() => {});
+    lockedFile = undefined;
+    await server?.close();
+    server = undefined;
+  });
+
+  it("the bug's exact shape: persisted events, a broadcast whose disk write failed consuming a seq, a restart, a stale cursor — the client ends with EVERY persisted event", async () => {
+    const { chmod } = await import("node:fs/promises");
+    const serverDir = await mkdtemp(path.join(os.tmpdir(), "lync-gen-serve-"));
+    const clientDir = await mkdtemp(path.join(os.tmpdir(), "lync-gen-client-"));
+    server = await startLyncServe({ dir: serverDir, log: () => {} });
+    const port = server.port;
+    const url = `ws://localhost:${port}`;
+    const roomFile = path.join(serverDir, "story.lync");
+
+    // N events persisted: a producer contributes e1, e2.
+    const producer = path.join(clientDir, "producer.lync");
+    await writeFile(producer, `${eventLine("e1", [], "one")}\n${eventLine("e2", ["e1"], "two")}\n`);
+    await syncOnce({ file: producer, url, root: "story", out: quiet, err: quiet });
+    expect(idsOf(await readFile(roomFile, "utf8"))).toEqual(["e1", "e2"]);
+
+    // The victim client syncs and saves its cursor — with the generation.
+    const victim = path.join(clientDir, "victim.lync");
+    await writeFile(victim, "");
+    await syncOnce({ file: victim, url, root: "story", out: quiet, err: quiet });
+    const cursor1 = JSON.parse(await readFile(`${victim}.sync.json`, "utf8")) as { seq: number; generation?: string };
+    expect(cursor1.seq).toBe(2);
+    expect(typeof cursor1.generation).toBe("string"); // additive: persisted alongside seq
+
+    // One broadcast with a FAILED disk write consumes seq 3: the room file
+    // goes read-only, e3 is accepted and fanned out but never persisted.
+    lockedFile = roomFile;
+    await chmod(roomFile, 0o444);
+    await appendFile(producer, `${eventLine("e3", ["e2"], "three, lost to disk")}\n`);
+    const producerErrs = collect();
+    await syncOnce({ file: producer, url, root: "story", out: quiet, err: producerErrs.io });
+    expect(idsOf(await readFile(roomFile, "utf8"))).toEqual(["e1", "e2"]); // not on disk
+
+    // The victim, connected during that generation, advances its cursor to 3.
+    await syncOnce({ file: victim, url, root: "story", out: quiet, err: quiet });
+    const cursor2 = JSON.parse(await readFile(`${victim}.sync.json`, "utf8")) as { seq: number; generation?: string };
+    expect(cursor2.seq).toBe(3);
+    expect(idsOf(await readFile(victim, "utf8"))).toEqual(["e1", "e2", "e3"]);
+
+    // Server restart: the disk heals, the relay recovers e1+e2 from disk and
+    // mints a NEW generation. seq 3 now means something else entirely.
+    await chmod(roomFile, 0o644);
+    lockedFile = undefined;
+    await server.close();
+    server = await startLyncServe({ dir: serverDir, port, log: () => {} });
+
+    // A fresh writer persists e4 in the new generation (its seq: 3).
+    const writer = path.join(clientDir, "writer.lync");
+    await writeFile(writer, `${eventLine("e4", ["e2"], "four, post-restart")}\n`);
+    await syncOnce({ file: writer, url, root: "story", out: quiet, err: quiet });
+
+    // The victim reconnects with its stale cursor {seq:3, gen:old}. Pre-fix
+    // it subscribed since 3 and silently skipped e4 forever. The generation
+    // mismatch must force a resync from 0 — loudly.
+    const victimErrs = collect();
+    await syncOnce({ file: victim, url, root: "story", out: quiet, err: victimErrs.io });
+    expect(victimErrs.text()).toContain("generation changed");
+    const victimIds = idsOf(await readFile(victim, "utf8"));
+    expect(victimIds).toContain("e4"); // the event the old bug skipped forever
+    expect(victimIds).toEqual(["e1", "e2", "e3", "e4"]);
+    // Every event persisted on the relay is in the victim's file...
+    for (const id of idsOf(await readFile(roomFile, "utf8"))) {
+      expect(victimIds).toContain(id);
+    }
+    // ...and the victim's push restored e3 (lost to the dead disk) to it.
+    expect(idsOf(await readFile(roomFile, "utf8"))).toContain("e3");
+    // The cursor now belongs to the new generation.
+    const cursor3 = JSON.parse(await readFile(`${victim}.sync.json`, "utf8")) as { seq: number; generation?: string };
+    expect(cursor3.generation).not.toBe(cursor2.generation);
+    expect(cursor3.seq).toBeGreaterThanOrEqual(4);
+  });
+
+  it("tolerates a pre-generation cursor file (old client state) without resetting", async () => {
+    const serverDir = await mkdtemp(path.join(os.tmpdir(), "lync-gen-serve-"));
+    const clientDir = await mkdtemp(path.join(os.tmpdir(), "lync-gen-client-"));
+    await writeFile(path.join(serverDir, "tale.lync"), `${eventLine("root", [], "one")}\n`);
+    server = await startLyncServe({ dir: serverDir, log: () => {} });
+    const url = `ws://localhost:${server.port}`;
+
+    const file = path.join(clientDir, "tale.lync");
+    await writeFile(file, `${eventLine("root", [], "one")}\n`);
+    // An old cursor file: no generation field at all.
+    await writeFile(`${file}.sync.json`, `${JSON.stringify({ url, root: "tale", seq: 1 })}\n`);
+
+    const result = await syncOnce({ file, url, root: "tale", out: quiet, err: quiet });
+    expect(result.received).toBe(0); // first gen sighting adopts; no spurious resync
+    const cursor = JSON.parse(await readFile(`${file}.sync.json`, "utf8")) as { seq: number; generation?: string };
+    expect(typeof cursor.generation).toBe("string"); // upgraded in place
+  });
+});
+
 describe("conflict sidecar durability (dee-inzc major)", () => {
   let server: LyncSyncServer | undefined;
   let lockedDir: string | undefined;

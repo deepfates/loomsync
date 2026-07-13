@@ -19,6 +19,13 @@ import { decodeFrame, encodeFrame, extractLineId, isCursor } from "../sync-proto
  * advances only after a received line has reached a durable local state —
  * appended, recognized as a duplicate, or surfaced as unusable. A sync that
  * cannot reach `live` within the timeout fails loudly; nothing hangs.
+ *
+ * The cursor stores the server's log generation alongside seq: a seq is only
+ * meaningful inside the generation that issued it (a broadcast whose disk
+ * write failed still consumed a seq, so after a server restart the recovered
+ * log can sit behind our cursor). When the server's `gen` differs from the
+ * stored one, the cursor resets to 0 and we resubscribe from scratch — union
+ * makes the re-download a set of duplicate no-ops, and nothing is skipped.
  */
 
 export interface LyncSyncOptions {
@@ -50,6 +57,8 @@ interface Cursor {
   url: string;
   root: string;
   seq: number;
+  /** Server log generation the seq belongs to. Absent: old cursor file or old server. */
+  generation?: string;
 }
 
 export async function syncOnce(options: LyncSyncOptions): Promise<LyncSyncResult> {
@@ -83,8 +92,43 @@ export async function syncOnce(options: LyncSyncOptions): Promise<LyncSyncResult
   let watcher: import("node:fs").FSWatcher | undefined;
   let pushChain = Promise.resolve();
 
+  // The generation our cursor belongs to. Adopted from the first gen-bearing
+  // frame; a later mismatch (server restarted) resets the cursor to 0 and
+  // resubscribes — duplicates are no-ops, silent skips are not.
+  let generation = cursor.generation;
+  // Every `sub` we send is answered by exactly one `live`, in order. After a
+  // generation reset re-subscribes, the earlier sub's live is stale — treating
+  // it as "live" would end a one-shot sync before the re-fetched backlog
+  // arrives. Count outstanding subs; only the last live counts.
+  let awaitedLives = 1; // the initial sub, sent on open
+
   const persistCursor = () =>
-    writeFile(cursorPath, `${JSON.stringify({ url: options.url, root, seq: result.seq } satisfies Cursor, null, 2)}\n`);
+    writeFile(
+      cursorPath,
+      `${JSON.stringify({ url: options.url, root, seq: result.seq, ...(generation !== undefined ? { generation } : {}) } satisfies Cursor, null, 2)}\n`,
+    );
+
+  /**
+   * Returns true when the server's generation differs from the one our cursor
+   * was saved under — in which case the cursor has been reset to 0 and a fresh
+   * `sub` from 0 is already on the wire. Frames without gen (old server) never
+   * trigger a reset.
+   */
+  const generationChanged = (gen: string | undefined): boolean => {
+    if (gen === undefined || gen === generation) return false;
+    if (generation === undefined) {
+      generation = gen; // first sighting: adopt, nothing to reset
+      return false;
+    }
+    options.err.write(
+      `lync sync: server log generation changed (${generation} -> ${gen}); resyncing ${root} from 0\n`,
+    );
+    generation = gen;
+    result.seq = 0;
+    awaitedLives += 1;
+    socket.send(encodeFrame({ t: "sub", root, since: 0 }));
+    return true;
+  };
 
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -151,6 +195,10 @@ export async function syncOnce(options: LyncSyncOptions): Promise<LyncSyncResult
       const frame = decodeFrame(typeof raw === "string" ? raw : new TextDecoder().decode(raw as ArrayBuffer));
       switch (frame.t) {
         case "ev": {
+          // A generation change resets the cursor and resubscribes; this
+          // frame's line is still ingested below (it is from the live
+          // generation), and the resubscribe re-covers everything else.
+          generationChanged(frame.gen);
           const id = extractLineId(frame.line);
           if (id === undefined) {
             options.err.write(`lync sync: server sent a line without an id; surfaced, not appended\n`);
@@ -172,6 +220,13 @@ export async function syncOnce(options: LyncSyncOptions): Promise<LyncSyncResult
           return;
         }
         case "live": {
+          // A stale live is not live: either its generation is dead (the
+          // resubscribe from 0 is already on the wire) or it answers a sub
+          // that a generation reset has since superseded. Wait for the real
+          // one — the backlog, then live, follows.
+          const changed = generationChanged(frame.gen);
+          awaitedLives -= 1;
+          if (changed || awaitedLives > 0) return;
           clearTimeout(timeout);
           result.seq = Math.max(result.seq, frame.seq);
           if (!options.follow) {
@@ -225,6 +280,11 @@ async function readCursor(path: string, url: string, root: string): Promise<Curs
     // get persisted as live — a permanent silent miss. Reset to 0 instead;
     // re-receiving the backlog is a harmless union no-op.
     if (stored.url === url && stored.root === root && isCursor(stored.seq)) {
+      // A non-string generation is noise from a hand-edited file: drop just
+      // the generation (the first gen-bearing frame re-adopts), keep the seq.
+      if (stored.generation !== undefined && typeof stored.generation !== "string") {
+        return { url, root, seq: stored.seq };
+      }
       return stored;
     }
     // Different server/root, or an unusable cursor: start from 0.

@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { IncomingMessage } from "node:http";
@@ -87,6 +88,14 @@ export interface LyncRelay {
 
 interface Room {
   root: string;
+  /**
+   * Log generation: minted fresh every time the room is recovered, never
+   * persisted — every restart is a new generation. Carried on ev/live frames
+   * so clients know their saved cursor belongs to a dead sequence (a failed
+   * disk write still consumes a seq, so a recovered log can sit behind an old
+   * cursor) and must resync from 0.
+   */
+  generation: string;
   seq: number;
   lines: string[];
   byId: Map<string, string>;
@@ -161,9 +170,9 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
             send(socket, { t: "err", root: room.root, reason: "recovered-damaged-tail", detail: room.recoveryNote });
           }
           for (let index = frame.since; index < room.lines.length; index += 1) {
-            send(socket, { t: "ev", root: room.root, seq: index + 1, line: room.lines[index] });
+            send(socket, { t: "ev", root: room.root, seq: index + 1, line: room.lines[index], gen: room.generation });
           }
-          send(socket, { t: "live", root: room.root, seq: room.seq });
+          send(socket, { t: "live", root: room.root, seq: room.seq, gen: room.generation });
           return;
         }
         case "ev": {
@@ -194,7 +203,7 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
           const persisted = await appendSerialized(room, join(options.dir, `${room.root}.lync`), frame.line);
           // Live delivery is the relay's primary job: fan out even if the disk
           // write failed. A durability failure is surfaced loudly, never hidden.
-          broadcast(room, { t: "ev", root: room.root, seq, line: frame.line });
+          broadcast(room, { t: "ev", root: room.root, seq, line: frame.line, gen: room.generation });
           if (!persisted.ok) {
             broadcast(room, { t: "err", root: room.root, reason: "persist-failed", detail: id });
           }
@@ -228,7 +237,7 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   }
 
   async function recoverRoom(root: string): Promise<Room> {
-    const room: Room = { root, seq: 0, lines: [], byId: new Map(), subscribers: new Set(), writeChain: Promise.resolve() };
+    const room: Room = { root, generation: randomUUID(), seq: 0, lines: [], byId: new Map(), subscribers: new Set(), writeChain: Promise.resolve() };
     const path = join(options.dir, `${root}.lync`);
     if (!existsSync(path)) return room;
     const text = await readFile(path, "utf8");
