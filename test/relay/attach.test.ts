@@ -3,9 +3,9 @@ import { createServer, type Server } from "node:http";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createMemoryEventStore } from "lync-core/memory-log";
-import { createLyncLooms, loomRootId } from "lync-core/looms";
-import { createSyncedStore, createWebSocketTransport } from "lync-core/synced-store";
+import { createMemoryEventStore } from "@deepfates/lync/memory-log";
+import { createLyncLooms, loomRootId } from "@deepfates/lync/looms";
+import { createSyncedStore, createWebSocketTransport } from "@deepfates/lync/synced-store";
 import { attachLyncServer, type AttachedLyncServer } from "../../src/relay/attach.js";
 
 async function listen(server: Server): Promise<number> {

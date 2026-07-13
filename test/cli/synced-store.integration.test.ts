@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createMemoryEventStore } from "lync-core/memory-log";
-import { createLyncLooms, loomRootId } from "lync-core/looms";
-import { createSyncedStore, createWebSocketTransport } from "lync-core/synced-store";
-import { startLyncServe, type LyncSyncServer } from "lync-core/relay";
+import { createMemoryEventStore } from "@deepfates/lync/memory-log";
+import { createLyncLooms, loomRootId } from "@deepfates/lync/looms";
+import { createSyncedStore, createWebSocketTransport } from "@deepfates/lync/synced-store";
+import { startLyncServe, type LyncSyncServer } from "@deepfates/lync/relay";
 
 /**
  * The embedded browser story, proven end to end: a real relay, two clients

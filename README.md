@@ -1,6 +1,6 @@
 # lync
 
-lync is a file format for append-only interaction history, and `lync-core` is
+lync is a file format for append-only interaction history, and `@deepfates/lync` is
 its reference implementation — one package that ships the parser, event
 stores, computed views, the loom API, live sync, the `lync` command, and the
 sync relay. Zero runtime dependencies.
@@ -70,7 +70,7 @@ expected-output schema; `generate.py` regenerates digests deterministically.
 ## The Library
 
 ```bash
-npm install lync-core
+npm install @deepfates/lync
 ```
 
 Runs in Node (>=22) and the browser. No dependencies.
@@ -78,8 +78,8 @@ Runs in Node (>=22) and the browser. No dependencies.
 ### Parse, union, view
 
 ```ts
-import { parseLyncFiles } from "lync-core/events";
-import { lyncBranchTreeView, lyncTranscriptView } from "lync-core/views";
+import { parseLyncFiles } from "@deepfates/lync/events";
+import { lyncBranchTreeView, lyncTranscriptView } from "@deepfates/lync/views";
 
 const bytes = new TextEncoder().encode(
   '{"v":1,"id":"root","kind":"notes/text","at":"2026-07-06T04:12:31Z","author":{"actor":"you"},"parents":[],"payload":{"text":"Once..."}}\n',
@@ -105,8 +105,8 @@ loom API gives programs turns and threads instead of raw events, on top of any
 store:
 
 ```ts
-import { createLyncLooms } from "lync-core/looms";
-import { createMemoryEventStore } from "lync-core/memory-log";
+import { createLyncLooms } from "@deepfates/lync/looms";
+import { createMemoryEventStore } from "@deepfates/lync/memory-log";
 
 const looms = createLyncLooms({
   store: createMemoryEventStore(),
@@ -128,8 +128,8 @@ and accepted events without making file order meaningful.
 An index tracks a collection of looms — upsert entries, subscribe to changes:
 
 ```ts
-import { loomRef } from "lync-core";
-import { createMemoryLoomIndexes } from "lync-core/indexes/memory";
+import { loomRef } from "@deepfates/lync";
+import { createMemoryLoomIndexes } from "@deepfates/lync/indexes/memory";
 
 const indexes = createMemoryLoomIndexes();
 const index = await indexes.create({ title: "My looms" });
@@ -149,10 +149,10 @@ One object that pairs looms with an index and resolves
 loom/turn/thread/index references to and from URLs:
 
 ```ts
-import { createLyncLooms } from "lync-core/looms";
-import { createMemoryEventStore } from "lync-core/memory-log";
-import { createMemoryLoomIndexes } from "lync-core/indexes/memory";
-import { createLoomClient } from "lync-core/client";
+import { createLyncLooms } from "@deepfates/lync/looms";
+import { createMemoryEventStore } from "@deepfates/lync/memory-log";
+import { createMemoryLoomIndexes } from "@deepfates/lync/indexes/memory";
+import { createLoomClient } from "@deepfates/lync/client";
 
 const client = createLoomClient({
   looms: createLyncLooms({ store: createMemoryEventStore(), author: { actor: "you" } }),
@@ -169,7 +169,7 @@ const opened = await client.openReference(client.references.fromUrl(new URL(url)
 console.log(opened.kind); // "loom" — opened.loom is ready to appendTurn
 ```
 
-`lync-core/client/testing` ships `createTestLoomClient`, a fully in-memory
+`@deepfates/lync/client/testing` ships `createTestLoomClient`, a fully in-memory
 client for tests and embedded experiments — deterministic when you pass
 `createId` and `now`.
 
@@ -182,9 +182,9 @@ collaborators append, because they already recompute through the store's
 
 <!-- example: fragment — needs a live relay and an app render loop; covered by the synced-store tests -->
 ```ts
-import { createMemoryEventStore } from "lync-core/memory-log";
-import { createLyncLooms } from "lync-core/looms";
-import { createSyncedStore, createWebSocketTransport } from "lync-core/synced-store";
+import { createMemoryEventStore } from "@deepfates/lync/memory-log";
+import { createLyncLooms } from "@deepfates/lync/looms";
+import { createSyncedStore, createWebSocketTransport } from "@deepfates/lync/synced-store";
 
 const transport = createWebSocketTransport("wss://host/lync");
 const store = createSyncedStore(createMemoryEventStore(), transport, {
@@ -206,21 +206,21 @@ in Node.
 
 ### Subpath exports
 
-- `lync-core/events` — line parsing, carried-byte export, incremental union
-- `lync-core/store` — the event-store contract and serialization
-- `lync-core/memory-log`, `lync-core/file-log`, `lync-core/idb-log` — stores
+- `@deepfates/lync/events` — line parsing, carried-byte export, incremental union
+- `@deepfates/lync/store` — the event-store contract and serialization
+- `@deepfates/lync/memory-log`, `@deepfates/lync/file-log`, `@deepfates/lync/idb-log` — stores
   (`file-log` is node-only; it keeps `node:fs` off the browser path)
-- `lync-core/views` — branch tree, transcript, memory, leaderboard
-- `lync-core/looms` — the loom/turn API
-- `lync-core/references` — loom/turn/thread/index references and URLs
-- `lync-core/synced-store` — live sync decorator and WebSocket transport
-- `lync-core/sync-protocol` — the five sync frames, encode/decode
-- `lync-core/uuid` — zero-dep UUIDv7 for event ids
-- `lync-core/indexes`, `lync-core/indexes/entries`,
-  `lync-core/indexes/memory`, `lync-core/indexes/types` — loom indexes
-- `lync-core/client`, `lync-core/client/testing`, `lync-core/client/types` —
+- `@deepfates/lync/views` — branch tree, transcript, memory, leaderboard
+- `@deepfates/lync/looms` — the loom/turn API
+- `@deepfates/lync/references` — loom/turn/thread/index references and URLs
+- `@deepfates/lync/synced-store` — live sync decorator and WebSocket transport
+- `@deepfates/lync/sync-protocol` — the five sync frames, encode/decode
+- `@deepfates/lync/uuid` — zero-dep UUIDv7 for event ids
+- `@deepfates/lync/indexes`, `@deepfates/lync/indexes/entries`,
+  `@deepfates/lync/indexes/memory`, `@deepfates/lync/indexes/types` — loom indexes
+- `@deepfates/lync/client`, `@deepfates/lync/client/testing`, `@deepfates/lync/client/types` —
   the loom client
-- `lync-core/relay` — the sync relay (see [The Relay](#the-relay))
+- `@deepfates/lync/relay` — the sync relay (see [The Relay](#the-relay))
 
 ## The Command
 
@@ -228,7 +228,7 @@ The package installs a `lync` bin with seven verbs: `init`, `append`,
 `verify`, `merge`, `view`, `serve`, and `sync`.
 
 ```bash
-npm install -g lync-core
+npm install -g @deepfates/lync
 ```
 
 ```bash
@@ -273,7 +273,7 @@ client reconnects exactly where it left off.
 
 Running a relay is the one thing that needs a WebSocket server, and Node does
 not ship one — so the relay acquires [`ws`](https://www.npmjs.com/package/ws)
-lazily at the moment you construct it. `lync-core` declares no dependency on
+lazily at the moment you construct it. `@deepfates/lync` declares no dependency on
 `ws` at all: install it yourself next to your server
 (`npm install ws`), and everything else in the package works without it.
 If you bundle a server that runs the relay, mark `ws` as external — the
@@ -283,7 +283,7 @@ Standalone:
 
 <!-- example: daemon — expect "relay on" -->
 ```ts
-import { startLyncServe } from "lync-core/relay";
+import { startLyncServe } from "@deepfates/lync/relay";
 
 const server = await startLyncServe({ dir: "./rooms", port: 8787 });
 console.log("relay on", server.port);
@@ -295,7 +295,7 @@ On an existing HTTP server:
 <!-- example: fragment — embeds into an existing app server (free variables: app, checkSession) -->
 ```ts
 import { createServer } from "node:http";
-import { attachLyncServer } from "lync-core/relay";
+import { attachLyncServer } from "@deepfates/lync/relay";
 
 const httpServer = createServer(app);
 const lync = attachLyncServer(httpServer, {

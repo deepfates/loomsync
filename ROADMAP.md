@@ -5,7 +5,7 @@ meaning should land in pacts, not in the envelope.
 
 ## Now
 
-- First public release of the one package: `lync-core` (library, indexes,
+- First public release of the one package: `@deepfates/lync` (library, indexes,
   client, relay, and the `lync` command).
 - Keep `FORMAT.md` and the test vectors aligned as the reference other
   languages can port.

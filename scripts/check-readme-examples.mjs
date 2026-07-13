@@ -14,7 +14,7 @@
 // There is no other configuration: a new example is checked by default.
 //
 // ts blocks execute from inside the repo root — Node's package self-reference
-// resolves "lync-core" and its subpaths exactly like an installed consumer —
+// resolves "@deepfates/lync" and its subpaths exactly like an installed consumer —
 // with cwd in a scratch dir so relative paths never touch the repo. bash
 // blocks run with the `lync` command token rewritten to the workspace bin;
 // `npm install` lines are skipped (noted), since installing is the reader's

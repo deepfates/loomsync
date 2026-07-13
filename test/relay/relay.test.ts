@@ -3,9 +3,9 @@ import { createServer, type Server } from "node:http";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createMemoryEventStore } from "lync-core/memory-log";
-import { createLyncLooms, loomRootId } from "lync-core/looms";
-import { createSyncedStore, createWebSocketTransport } from "lync-core/synced-store";
+import { createMemoryEventStore } from "@deepfates/lync/memory-log";
+import { createLyncLooms, loomRootId } from "@deepfates/lync/looms";
+import { createSyncedStore, createWebSocketTransport } from "@deepfates/lync/synced-store";
 import { createLyncRelay } from "../../src/relay/relay.js";
 
 /**
@@ -79,7 +79,7 @@ describe("createLyncRelay durability failures", () => {
     const os = await import("node:os");
     const nodePath = await import("node:path");
     const { createServer } = await import("node:http");
-    const { createWebSocketTransport } = await import("lync-core/synced-store");
+    const { createWebSocketTransport } = await import("@deepfates/lync/synced-store");
 
     const dir = await mkdtemp(nodePath.join(os.tmpdir(), "lync-persist-"));
     // Read-only dir: recovery (no existing files) succeeds, but every append fails.

@@ -4,38 +4,38 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: /^lync-core\/profiles\/text-story$/,
+        find: /^@deepfates\/lync\/profiles\/text-story$/,
         replacement: new URL(
           "./src/profiles/text-story.ts",
           import.meta.url,
         ).pathname,
       },
       {
-        find: /^lync-core\/indexes\/([a-z0-9-]+)$/,
+        find: /^@deepfates\/lync\/indexes\/([a-z0-9-]+)$/,
         replacement: new URL("./src/indexes/", import.meta.url).pathname + "$1.ts",
       },
       {
-        find: /^lync-core\/indexes$/,
+        find: /^@deepfates\/lync\/indexes$/,
         replacement: new URL("./src/indexes/index.ts", import.meta.url).pathname,
       },
       {
-        find: /^lync-core\/client\/([a-z0-9-]+)$/,
+        find: /^@deepfates\/lync\/client\/([a-z0-9-]+)$/,
         replacement: new URL("./src/client/", import.meta.url).pathname + "$1.ts",
       },
       {
-        find: /^lync-core\/client$/,
+        find: /^@deepfates\/lync\/client$/,
         replacement: new URL("./src/client/index.ts", import.meta.url).pathname,
       },
       {
-        find: /^lync-core\/relay$/,
+        find: /^@deepfates\/lync\/relay$/,
         replacement: new URL("./src/relay/index.ts", import.meta.url).pathname,
       },
       {
-        find: /^lync-core\/([a-z0-9-]+)$/,
+        find: /^@deepfates\/lync\/([a-z0-9-]+)$/,
         replacement: new URL("./src/", import.meta.url).pathname + "$1.ts",
       },
       {
-        find: /^lync-core$/,
+        find: /^@deepfates\/lync$/,
         replacement: new URL("./src/index.ts", import.meta.url).pathname,
       },
     ],

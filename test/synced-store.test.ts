@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryEventStore } from "lync-core/memory-log";
-import { createLyncLooms } from "lync-core/looms";
+import { createMemoryEventStore } from "@deepfates/lync/memory-log";
+import { createLyncLooms } from "@deepfates/lync/looms";
 import {
   createSyncedStore,
   type SyncConnectionState,
   type SyncStatus,
   type SyncTransport,
-} from "lync-core/synced-store";
-import type { SyncFrame } from "lync-core/sync-protocol";
-import { serializeLyncEvent } from "lync-core/store";
+} from "@deepfates/lync/synced-store";
+import type { SyncFrame } from "@deepfates/lync/sync-protocol";
+import { serializeLyncEvent } from "@deepfates/lync/store";
 
 function mockTransport(initial: SyncConnectionState = "online") {
   const frameHandlers = new Set<(frame: SyncFrame) => void>();

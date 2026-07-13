@@ -3,7 +3,7 @@ import { appendFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { startLyncServe, type LyncSyncServer } from "lync-core/relay";
+import { startLyncServe, type LyncSyncServer } from "@deepfates/lync/relay";
 import { syncOnce } from "../../src/cli/sync.js";
 
 const quiet = { write: () => true } as const;

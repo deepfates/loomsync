@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryEventStore } from "lync-core/memory-log";
-import { createLyncLooms } from "lync-core/looms";
-import { createMemoryLoomIndexes } from "lync-core/indexes/memory";
-import { upsertLoom } from "lync-core/indexes/entries";
+import { createMemoryEventStore } from "@deepfates/lync/memory-log";
+import { createLyncLooms } from "@deepfates/lync/looms";
+import { createMemoryLoomIndexes } from "@deepfates/lync/indexes/memory";
+import { upsertLoom } from "@deepfates/lync/indexes/entries";
 import { createLoomClient } from "../../src/client/create.js";
 
 function makeClient() {

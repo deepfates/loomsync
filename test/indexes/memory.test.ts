@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loomRef } from "lync-core";
+import { loomRef } from "@deepfates/lync";
 import { createMemoryLoomIndexes } from "../../src/indexes/memory.js";
 import { upsertLoom } from "../../src/indexes/entries.js";
 
