@@ -15,24 +15,24 @@ cd "$clone_dir"
 
 pnpm install --frozen-lockfile
 pnpm build
-pnpm exec lync --help > help.txt
+node bin/lync.js --help > help.txt
 
-pnpm exec lync init demo.lync
+node bin/lync.js init demo.lync
 first_id="$(
   printf '%s\n' '{"kind":"note/text","author":{"actor":"smoke"},"payload":{"text":"first line"}}' \
-    | pnpm exec lync append demo.lync
+    | node bin/lync.js append demo.lync
 )"
-pnpm exec lync view demo.lync --as transcript > transcript.json
+node bin/lync.js view demo.lync --as transcript > transcript.json
 
 cp demo.lync a.lync
 second_id="$(
   printf '%s\n' '{"kind":"note/text","author":{"actor":"smoke"},"payload":{"text":"second line"}}' \
-    | pnpm exec lync append demo.lync
+    | node bin/lync.js append demo.lync
 )"
 cp demo.lync b.lync
 cat a.lync b.lync > concatenated.lync
-pnpm exec lync merge a.lync b.lync -o merged.lync
-pnpm exec lync verify merged.lync > verify.txt
+node bin/lync.js merge a.lync b.lync -o merged.lync
+node bin/lync.js verify merged.lync > verify.txt
 
 test "$(grep -F -c "\"id\":\"$first_id\"" merged.lync)" = "1"
 test "$(grep -F -c "\"id\":\"$second_id\"" merged.lync)" = "1"

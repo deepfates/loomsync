@@ -1,0 +1,2 @@
+{"v":1,"id":"018f0000-0000-7000-8000-000000000021","kind":"lync/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"tampered"},"digest":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}
+{"v":1,"id":"018f0000-0000-7000-8000-000000000022","kind":"lync/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"deepfates"},"parents":[],"payload":{"x":1,"x":2},"digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}

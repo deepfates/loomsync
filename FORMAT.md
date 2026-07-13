@@ -1,4 +1,4 @@
-# The lync format — files of lore
+# The lync format
 
 Status: v0 draft. Conventional extension: `.lync`.
 
@@ -43,7 +43,7 @@ One shape. Everything is an instance of it.
 | Field | Required | Type | Meaning |
 |---|---|---|---|
 | `v` | yes | int | Envelope version. Writers never invent top-level fields; readers tolerate unknown ones as future-version diagnostics. |
-| `id` | yes | string; UUIDv7 is a writer obligation | Identity of the event, not the content. Two identical generations are two events. The embedded timestamp is untrusted input; `at` and `marked` carry time claims. Readers compare ids as opaque decoded strings and validate nothing about their shape. |
+| `id` | yes | string; UUID is a writer obligation | Identity of the event, not the content. Generators mint UUIDv7 (two identical generations are two events); importers transcribing pre-existing events may instead derive a deterministic UUIDv8 from source identity, so re-importing the same source is a union no-op and an upstream edit surfaces as a same-id conflict. The embedded timestamp is untrusted input; `at` and `marked` carry time claims. Readers compare ids as opaque decoded strings and validate nothing about their shape. |
 | `kind` | yes | string, `namespace/name` | What sort of event this is. Opaque to the protocol. Must contain at least one `/`; the part before the first `/` is the namespace and the rest is the name, both non-empty. The name may itself contain `/`. The namespace tells you whose pact defines it; the protocol never interprets it and there is no registry. |
 | `at` | yes | RFC 3339 | When the content came into being, as claimed by the author. A claim, not a proof. |
 | `author` | yes | object | Provenance: who made this, under whose responsibility, through what. |
@@ -283,20 +283,20 @@ agree on. A pact binds its signatories; the protocol binds everyone.
 Where a community has already converged, borrow; mint only where you are
 genuinely first. Current recommendations:
 
-- `lore/artifact`: a thing someone produced from prior things, such as prose,
+- `lync/artifact`: a thing someone produced from prior things, such as prose,
   code, a prediction, a tool result, an imported message, or a computed excerpt.
   `parents` are what it was made from, in order.
-- `lore/annotation`: an authored claim about one or more events. `parents` are
+- `lync/annotation`: an authored claim about one or more events. `parents` are
   the targets. Scores, critiques, rewards, receipts, labels, and selections are
   relations-as-events.
-- `lore/pointer`: a named reference that moves without mutating. Payload
+- `lync/pointer`: a named reference that moves without mutating. Payload
   `{"name": "...", "target": "<id>"}`; live value is newest per actor and name.
   Older pointers are history.
-- `lore/tombstone`: retraction, written `critical: true` so rule 3 binds even
+- `lync/tombstone`: retraction, written `critical: true` so rule 3 binds even
   readers that have never heard of tombstones. `parents[0]` is the target.
 
 Historical namespace spellings are frozen wire vocabulary. Shipped kind strings
-such as `lore/annotation`, `lore/artifact`, `lync/turn`, and `lync/loom` are
+such as `lync/annotation`, `lync/artifact`, `lync/turn`, and `lync/loom` are
 exact-match data in stored files; the lync brand does not rename shipped kinds.
 
 Annotation labels may include `selection`, `score`, `decision`, `no-train`,
@@ -370,19 +370,28 @@ Ordering for a live multiplayer world is its own pact. If a world needs a
 global sequence, it carries `seq` in payload. Who may fork it is governance,
 not data.
 
+Absent from the format does not mean absent from the toolbox — it means
+layered above it. The reference implementation ships a sync relay and a sync
+client beside this spec; they are tools that happen to move `.lync` lines,
+not part of the format. Because events are immutable and merge is set union
+by id, any transport that delivers canonical line bytes converges the same
+files: a WebSocket relay, `rsync`, an email attachment, or a USB stick are
+all conformant sync mechanisms. An implementation of this document is
+complete without implementing any of them.
+
 ## Worked Example
 
 Five events: a paragraph, two alternatives, a judge's score, and a declared
 choice. Non-normative shorthand: ids are shown as `A` to `E` and digests are
-elided for readability only. Conforming writers mint UUIDv7 ids and should
+elided for readability only. Conforming generators mint UUIDv7 ids (importers may derive deterministic UUIDv8 — see the `id` row) and should
 splice digests per "Bytes Are Canonical."
 
 ```jsonl
-{"v":1,"id":"A","kind":"lore/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"The bear stood at the lip of the falls."}}
-{"v":1,"id":"B","kind":"lore/artifact","at":"2026-07-06T04:10:09Z","author":{"actor":"claude-haiku-4-5","operator":"deepfates","via":"textile@0.9"},"parents":["A"],"payload":{"text":"It did not move for an hour, and the river brought it everything.","ordinal":0}}
-{"v":1,"id":"C","kind":"lore/artifact","at":"2026-07-06T04:10:09Z","author":{"actor":"claude-haiku-4-5","operator":"deepfates","via":"textile@0.9"},"parents":["A"],"payload":{"text":"Downstream, the younger bears fought over shallows.","ordinal":1}}
-{"v":1,"id":"D","kind":"lore/annotation","at":"2026-07-06T04:10:11Z","author":{"actor":"witness-panel-v3"},"parents":["B"],"payload":{"label":"score","value":0.91}}
-{"v":1,"id":"E","kind":"lore/annotation","at":"2026-07-06T04:10:15Z","author":{"actor":"deepfates"},"parents":["B","C"],"payload":{"label":"selection","chosen":["B"],"shown":["B","C"],"basis":"human pick"}}
+{"v":1,"id":"A","kind":"lync/artifact","at":"2026-07-06T04:10:00Z","author":{"actor":"deepfates"},"parents":[],"payload":{"text":"The bear stood at the lip of the falls."}}
+{"v":1,"id":"B","kind":"lync/artifact","at":"2026-07-06T04:10:09Z","author":{"actor":"claude-haiku-4-5","operator":"deepfates","via":"textile@0.9"},"parents":["A"],"payload":{"text":"It did not move for an hour, and the river brought it everything.","ordinal":0}}
+{"v":1,"id":"C","kind":"lync/artifact","at":"2026-07-06T04:10:09Z","author":{"actor":"claude-haiku-4-5","operator":"deepfates","via":"textile@0.9"},"parents":["A"],"payload":{"text":"Downstream, the younger bears fought over shallows.","ordinal":1}}
+{"v":1,"id":"D","kind":"lync/annotation","at":"2026-07-06T04:10:11Z","author":{"actor":"witness-panel-v3"},"parents":["B"],"payload":{"label":"score","value":0.91}}
+{"v":1,"id":"E","kind":"lync/annotation","at":"2026-07-06T04:10:15Z","author":{"actor":"deepfates"},"parents":["B","C"],"payload":{"label":"selection","chosen":["B"],"shown":["B","C"],"basis":"human pick"}}
 ```
 
 Event `E` exists because nothing was extended yet, so the graph alone cannot
@@ -396,10 +405,6 @@ of these kinds still merges this file with any other, verifies every digest,
 walks every parent, and lies about nothing.
 
 ## Ambiguity Notes
-
-The public vocabulary has moved to lync, but the current TypeScript package
-still exposes some legacy import paths and identifier names. Those names are
-not wire-format semantics.
 
 Reserved top-level field names such as `digest` and `sig` are wire-format
 semantics and are not renamed.

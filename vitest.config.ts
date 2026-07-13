@@ -4,97 +4,43 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: /^@lync\/core\/automerge$/,
+        find: /^@deepfates\/lync\/profiles\/text-story$/,
         replacement: new URL(
-          "./packages/core/src/automerge.ts",
+          "./src/profiles/text-story.ts",
           import.meta.url,
         ).pathname,
       },
       {
-        find: /^@lync\/core\/browser$/,
-        replacement: new URL(
-          "./packages/core/src/browser.ts",
-          import.meta.url,
-        ).pathname,
+        find: /^@deepfates\/lync\/indexes\/([a-z0-9-]+)$/,
+        replacement: new URL("./src/indexes/", import.meta.url).pathname + "$1.ts",
       },
       {
-        find: /^@lync\/core\/memory$/,
-        replacement: new URL(
-          "./packages/core/src/memory.ts",
-          import.meta.url,
-        ).pathname,
+        find: /^@deepfates\/lync\/indexes$/,
+        replacement: new URL("./src/indexes/index.ts", import.meta.url).pathname,
       },
       {
-        find: /^@lync\/core\/profiles\/text-story$/,
-        replacement: new URL(
-          "./packages/core/src/profiles/text-story.ts",
-          import.meta.url,
-        ).pathname,
+        find: /^@deepfates\/lync\/client\/([a-z0-9-]+)$/,
+        replacement: new URL("./src/client/", import.meta.url).pathname + "$1.ts",
       },
       {
-        find: /^@lync\/core\/lore\/events$/,
-        replacement: new URL(
-          "./packages/core/src/lore/events.ts",
-          import.meta.url,
-        ).pathname,
+        find: /^@deepfates\/lync\/client$/,
+        replacement: new URL("./src/client/index.ts", import.meta.url).pathname,
       },
       {
-        find: /^@lync\/core\/lore\/views$/,
-        replacement: new URL(
-          "./packages/core/src/lore/views.ts",
-          import.meta.url,
-        ).pathname,
+        find: /^@deepfates\/lync\/relay$/,
+        replacement: new URL("./src/relay/index.ts", import.meta.url).pathname,
       },
       {
-        find: /^@lync\/core$/,
-        replacement: new URL("./packages/core/src/index.ts", import.meta.url).pathname,
+        find: /^@deepfates\/lync\/([a-z0-9-]+)$/,
+        replacement: new URL("./src/", import.meta.url).pathname + "$1.ts",
       },
       {
-        find: /^@lync\/index\/automerge$/,
-        replacement: new URL(
-          "./packages/index/src/automerge.ts",
-          import.meta.url,
-        ).pathname,
-      },
-      {
-        find: /^@lync\/index\/memory$/,
-        replacement: new URL(
-          "./packages/index/src/memory.ts",
-          import.meta.url,
-        ).pathname,
-      },
-      {
-        find: /^@lync\/index$/,
-        replacement: new URL("./packages/index/src/index.ts", import.meta.url).pathname,
-      },
-      {
-        find: /^@lync\/client\/browser$/,
-        replacement: new URL(
-          "./packages/client/src/browser.ts",
-          import.meta.url,
-        ).pathname,
-      },
-      {
-        find: /^@lync\/client\/node$/,
-        replacement: new URL(
-          "./packages/client/src/node.ts",
-          import.meta.url,
-        ).pathname,
-      },
-      {
-        find: /^@lync\/client\/testing$/,
-        replacement: new URL(
-          "./packages/client/src/testing.ts",
-          import.meta.url,
-        ).pathname,
-      },
-      {
-        find: /^@lync\/client$/,
-        replacement: new URL("./packages/client/src/index.ts", import.meta.url).pathname,
+        find: /^@deepfates\/lync$/,
+        replacement: new URL("./src/index.ts", import.meta.url).pathname,
       },
     ],
   },
   test: {
-    include: ["packages/*/test/**/*.test.ts"],
+    include: ["test/**/*.test.ts"],
   },
 });
