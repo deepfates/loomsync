@@ -54,6 +54,8 @@ export interface LyncScoreReference {
 export interface LyncSelectionReference {
   annotationId: string;
   selected: boolean;
+  chosen: string[];
+  shown: string[];
   author: LyncEventBody["author"];
   at: string;
   basis?: unknown;
@@ -190,7 +192,11 @@ export function lyncLeaderboardView(result: LyncParseResult): LyncLeaderboardVie
     return entry;
   };
 
-  for (const viewEvent of index.events.values()) {
+  // Walk annotations in sorted-id order, not file-line order: float addition
+  // is order-sensitive, so summing by sorted annotation id keeps scoreTotal
+  // and scoreMean bit-stable no matter how the input files are shuffled.
+  for (const id of index.ids) {
+    const viewEvent = index.events.get(id)!;
     const event = viewEvent.event;
     if (event.kind !== "lync/annotation" || viewEvent.payloadSuppressed) continue;
     const label = event.payload["label"];
@@ -220,7 +226,15 @@ export function lyncLeaderboardView(result: LyncParseResult): LyncLeaderboardVie
         const entry = ensure(targetId);
         entry.selectionCount += 1;
         if (selected) entry.selectedCount += 1;
-        entry.selections.push({ annotationId: event.id, selected, author: event.author, at: event.at, basis: event.payload["basis"] });
+        entry.selections.push({
+          annotationId: event.id,
+          selected,
+          chosen: [...chosen],
+          shown: [...shown],
+          author: event.author,
+          at: event.at,
+          basis: event.payload["basis"],
+        });
       }
     }
   }

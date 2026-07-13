@@ -156,5 +156,68 @@ describe("lync views", () => {
       { targetId: "B", rank: 1, scoreMean: 0.91, selectedCount: 1, selectionCount: 1 },
       { targetId: "C", rank: 2, scoreMean: 0.2, selectedCount: 0, selectionCount: 1 },
     ]);
+    expect(leaderboard.entries.find((entry) => entry.targetId === "B")?.selections).toEqual([
+      { annotationId: "E", selected: true, chosen: ["B"], shown: ["B", "C"], author: { actor: "deepfates" }, at: "2026-07-06T04:10:00Z", basis: "human pick" },
+    ]);
+  });
+
+  it("computes bit-identical scoreMean regardless of file order", () => {
+    const files = [
+      { file: "a.lync", bytes: [event({ id: "A", payload: { text: "root" } }), event({
+        id: "S1",
+        kind: "lync/annotation",
+        author: { actor: "witness-panel-v3" },
+        parents: ["A"],
+        payload: { label: "score", value: 0.1 },
+      })].join("\n") + "\n" },
+      { file: "b.lync", bytes: event({
+        id: "S2",
+        kind: "lync/annotation",
+        author: { actor: "witness-panel-v3" },
+        parents: ["A"],
+        payload: { label: "score", value: 0.2 },
+      }) + "\n" },
+      { file: "c.lync", bytes: event({
+        id: "S3",
+        kind: "lync/annotation",
+        author: { actor: "witness-panel-v3" },
+        parents: ["A"],
+        payload: { label: "score", value: 0.3 },
+      }) + "\n" },
+    ];
+    const forward = lyncLeaderboardView(parseLyncFiles(files));
+    const reversed = lyncLeaderboardView(parseLyncFiles([...files].reverse()));
+
+    const meanForward = forward.entries.find((entry) => entry.targetId === "A")?.scoreMean;
+    const meanReversed = reversed.entries.find((entry) => entry.targetId === "A")?.scoreMean;
+    expect(meanForward).not.toBeNull();
+    expect(meanForward).toBeDefined();
+    expect(Object.is(meanForward, meanReversed)).toBe(true);
+  });
+
+  it("carries empty chosen/shown arrays when the selection payload omits shown", () => {
+    const input = [
+      event({ id: "A", payload: { text: "root" } }),
+      event({ id: "B", parents: ["A"], payload: { text: "left" } }),
+      event({ id: "C", parents: ["A"], payload: { text: "right" } }),
+      event({
+        id: "G",
+        kind: "lync/annotation",
+        author: { actor: "deepfates" },
+        parents: ["B", "C"],
+        payload: { label: "selection", chosen: ["B"] },
+      }),
+    ].join("\n") + "\n";
+    const result = parseLyncFiles([{ file: "worked.lync", bytes: input }]);
+    const leaderboard = lyncLeaderboardView(result);
+
+    const selectionsFor = (targetId: string) =>
+      leaderboard.entries.find((entry) => entry.targetId === targetId)?.selections;
+    expect(selectionsFor("B")).toEqual([
+      { annotationId: "G", selected: true, chosen: ["B"], shown: [], author: { actor: "deepfates" }, at: "2026-07-06T04:10:00Z", basis: undefined },
+    ]);
+    expect(selectionsFor("C")).toEqual([
+      { annotationId: "G", selected: false, chosen: ["B"], shown: [], author: { actor: "deepfates" }, at: "2026-07-06T04:10:00Z", basis: undefined },
+    ]);
   });
 });
