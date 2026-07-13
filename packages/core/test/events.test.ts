@@ -505,3 +505,47 @@ describe("lync v0 line parser vectors", () => {
     ]);
   });
 });
+
+describe("parent-cycle detection (dee-07pu gauntlet: linear-time, order-independent)", () => {
+  it("reports each distinct cycle once, canonical rotation, regardless of file order", () => {
+    const lines = [
+      `${eventBody({ id: "b", parents: ["a"] })}\n`,
+      `${eventBody({ id: "a", parents: ["b"] })}\n`,
+      `${eventBody({ id: "c", parents: ["a"] })}\n`,
+    ];
+    const orderings = [lines, [lines[2], lines[0], lines[1]], [lines[1], lines[2], lines[0]]];
+    for (const ordering of orderings) {
+      const result = parseLyncFiles([
+        { file: "cycle.lync", bytes: new TextEncoder().encode(ordering.join("")) },
+      ]);
+      expect(result.graphDiagnostics.filter((o) => o.class === "cycle")).toEqual([
+        { class: "cycle", ids: ["a", "b"] },
+      ]);
+    }
+  });
+
+  it(
+    "parses a 20k-deep parent chain in linear time (codex session shape)",
+    () => {
+      // Before the shared-DFS rewrite this shape was ~10x slower per doubling
+      // (measured 152s at n=4000); a quadratic regression would blow far past
+      // this bound, a linear pass stays well under it.
+      const n = 20_000;
+      const chain: string[] = [];
+      for (let i = 0; i < n; i += 1) {
+        chain.push(
+          `${eventBody({ id: `e-${String(i).padStart(7, "0")}`, parents: i === 0 ? [] : [`e-${String(i - 1).padStart(7, "0")}`] })}\n`,
+        );
+      }
+      const started = performance.now();
+      const result = parseLyncFiles([
+        { file: "chain.lync", bytes: new TextEncoder().encode(chain.join("")) },
+      ]);
+      const elapsed = performance.now() - started;
+      expect(result.lines.filter((line) => line.class === "accepted")).toHaveLength(n);
+      expect(result.graphDiagnostics).toEqual([]);
+      expect(elapsed).toBeLessThan(10_000);
+    },
+    30_000,
+  );
+});

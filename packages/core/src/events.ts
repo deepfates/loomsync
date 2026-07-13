@@ -575,27 +575,65 @@ function graphObstacles(acceptedById: Map<string, LyncLineDiagnostic>, conflictI
       else if (!acceptedById.has(parent)) obstacles.push({ class: "dangling", missing: parent });
     }
   }
-  for (const id of acceptedById.keys()) {
-    if (conflictIds.has(id)) continue;
-    const cycle = findCycle(id, acceptedById, conflictIds);
-    if (cycle.length) obstacles.push({ class: "cycle", ids: cycle });
+  for (const cycle of findCycles(acceptedById, conflictIds)) {
+    obstacles.push({ class: "cycle", ids: cycle });
   }
   return normalizeObstacles(obstacles);
 }
 
-function findCycle(id: string, acceptedById: Map<string, LyncLineDiagnostic>, conflictIds: Set<string>): string[] {
-  const visit = (current: string, path: string[]): string[] => {
-    if (path.includes(current)) return path.slice(path.indexOf(current));
-    if (conflictIds.has(current)) return [];
-    const event = acceptedById.get(current)?.event;
-    if (!event) return [];
-    for (const parent of event.parents) {
-      const found = visit(parent, [...path, current]);
-      if (found.length) return found;
+/**
+ * Every distinct parent-cycle among accepted events, each reported once in a
+ * canonical rotation (smallest id first). One shared three-color DFS over the
+ * whole graph — iterative (no recursion depth limit) and O(events + parent
+ * edges), so a 100k-deep chain costs one walk, not one walk per event.
+ */
+function findCycles(acceptedById: Map<string, LyncLineDiagnostic>, conflictIds: Set<string>): string[][] {
+  const GRAY = 1;
+  const BLACK = 2;
+  const color = new Map<string, number>();
+  const cycles: string[][] = [];
+  const seenCycles = new Set<string>();
+
+  for (const startId of acceptedById.keys()) {
+    if (conflictIds.has(startId) || color.get(startId) === BLACK) continue;
+    const stack: { id: string; nextParent: number }[] = [{ id: startId, nextParent: 0 }];
+    const path: string[] = [startId];
+    const pathIndex = new Map<string, number>([[startId, 0]]);
+    color.set(startId, GRAY);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      const event = acceptedById.get(frame.id)?.event;
+      const parents = event ? event.parents : [];
+      if (frame.nextParent < parents.length) {
+        const parent = parents[frame.nextParent];
+        frame.nextParent += 1;
+        if (conflictIds.has(parent) || !acceptedById.has(parent)) continue;
+        const parentColor = color.get(parent);
+        if (parentColor === GRAY) {
+          const cycle = path.slice(pathIndex.get(parent));
+          const smallest = cycle.indexOf([...cycle].sort()[0]);
+          const canonical = [...cycle.slice(smallest), ...cycle.slice(0, smallest)];
+          const key = canonical.join(" ");
+          if (!seenCycles.has(key)) {
+            seenCycles.add(key);
+            cycles.push(canonical);
+          }
+        } else if (parentColor !== BLACK) {
+          color.set(parent, GRAY);
+          pathIndex.set(parent, path.length);
+          path.push(parent);
+          stack.push({ id: parent, nextParent: 0 });
+        }
+      } else {
+        stack.pop();
+        color.set(frame.id, BLACK);
+        path.pop();
+        pathIndex.delete(frame.id);
+      }
     }
-    return [];
-  };
-  return visit(id, []);
+  }
+  return cycles;
 }
 
 function normalizeObstacles(obstacles: LyncObstacle[]): LyncObstacle[] {
