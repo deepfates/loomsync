@@ -104,6 +104,23 @@ describe("createSyncedStore", () => {
     expect(statuses.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("surfaces every non-conflict relay error into the failures channel, never silently drops it", async () => {
+    const statuses: SyncStatus[] = [];
+    const mock = mockTransport();
+    const store = createSyncedStore(createMemoryEventStore(), mock.transport, {
+      onStatus: (s) => statuses.push(s),
+    });
+    store.syncRoot("r1");
+    // A relay durability failure: the fan-out landed but the disk write did not.
+    mock.inject({ t: "err", root: "r1", reason: "persist-failed", detail: "evt-9" });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const status = store.status();
+    expect(status.failures.some((f) => f.includes("persist-failed") && f.includes("evt-9"))).toBe(true);
+    expect(status.conflicts).toEqual([]); // a persist failure is not a conflict
+    expect(statuses.some((s) => s.failures.some((f) => f.includes("persist-failed")))).toBe(true);
+  });
+
   it("re-pushes local backlog and re-subscribes on reconnect", async () => {
     const mock = mockTransport("online");
     const store = createSyncedStore(createMemoryEventStore(), mock.transport);

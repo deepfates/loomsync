@@ -227,8 +227,16 @@ export function createSyncedStore(
       case "err": {
         if (frame.reason === "same-id-conflict" && frame.detail) {
           conflicts.add(frame.detail);
-          emitStatus();
+        } else {
+          // Every other relay-side failure — persist-failed, conflict-persist-failed,
+          // recovered-damaged-tail, line-without-id, unexpected-live-from-client,
+          // server-error — is a failure the client must see, never a silent drop.
+          // A durability failure on the relay reaches the client's status channel.
+          const where = frame.root ? ` for ${frame.root}` : "";
+          const detail = frame.detail ? ` (${frame.detail})` : "";
+          failures.push(`relay error${where}: ${frame.reason}${detail}`);
         }
+        emitStatus();
         return;
       }
       default:
