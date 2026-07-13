@@ -15,6 +15,7 @@ lync init story.lync
 printf '%s\n' '{"kind":"notes/text","author":{"actor":"you"},"payload":{"text":"Once..."}}' | lync append story.lync
 lync verify story.lync
 lync view story.lync --as transcript
+printf '%s\n' '{"kind":"notes/text","author":{"actor":"friend"},"payload":{"text":"Then..."}}' | lync append other.lync
 lync merge story.lync other.lync -o merged.lync
 ```
 
@@ -28,6 +29,7 @@ conflict variant — and never drops bytes. `view` renders `transcript` or
 
 Any lync file can converge with any other copy through a relay:
 
+<!-- example: fragment — needs a live relay pair; the serve/sync path is covered by the server and cli test suites -->
 ```bash
 lync serve ./rooms --port 8787              # the relay: one append-only file per root
 lync sync story.lync ws://host:8787         # one-shot: push what it lacks, pull what you lack

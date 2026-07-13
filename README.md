@@ -257,8 +257,11 @@ pnpm test
 pnpm verify
 ```
 
-`pnpm verify` runs tests, builds packages, and typechecks emitted package
-surfaces.
+`pnpm verify` runs tests, builds packages, typechecks emitted package
+surfaces, and executes every fenced example in the package READMEs against
+the built packages (`pnpm check:examples`). README examples are contract:
+a block runs as-written unless an `<!-- example: fragment -->` comment above
+it declares why it can't run alone.
 
 For a fresh clone, `pnpm install && pnpm build` is the supported setup sequence.
 After that, `pnpm exec lync --help` should print the CLI help from the workspace

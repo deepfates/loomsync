@@ -62,6 +62,7 @@ Wrap any store in `createSyncedStore` and it converges with a relay
 frames. Local appends push, remote lines surface reactively, offline appends
 queue and flush on reconnect:
 
+<!-- example: fragment — wraps an undefined localStore and needs a live relay; covered by the synced-store tests -->
 ```ts
 import { createSyncedStore, createWebSocketTransport } from "lync-core/synced-store";
 

@@ -13,6 +13,7 @@ npm install lync-server
 
 ## Standalone
 
+<!-- example: daemon — expect "relay on" -->
 ```ts
 import { startLyncServe } from "lync-server";
 
@@ -23,6 +24,7 @@ console.log("relay on", server.port);
 
 ## On an existing HTTP server
 
+<!-- example: fragment — embeds into an existing app server (free variables: app, checkSession) -->
 ```ts
 import { createServer } from "node:http";
 import { attachLyncServer } from "lync-server";

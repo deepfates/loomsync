@@ -12,8 +12,8 @@
     "test": "vitest run",
     "typecheck": "pnpm build && pnpm -r typecheck",
     "guard:paths": "bash scripts/no-machine-local-paths.sh",
-    "verify": "pnpm guard:paths && pnpm test && pnpm typecheck && pnpm smoke:readme",
-    "smoke:readme": "node scripts/readme-examples-smoke.mjs"
+    "verify": "pnpm guard:paths && pnpm test && pnpm typecheck && pnpm check:examples",
+    "check:examples": "node scripts/check-readme-examples.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
