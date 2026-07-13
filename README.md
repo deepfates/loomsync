@@ -1,15 +1,34 @@
 # lync
 
-lync is a file format for append-only interaction history, and `@deepfates/lync` is
-its reference implementation — one package that ships the parser, event
-stores, computed views, the loom API, live sync, the `lync` command, and the
-sync relay. Zero runtime dependencies.
+Most software forgets. Edit a document and yesterday's version is gone. Write
+with an AI that offers three options and the two you do not pick vanish. Let a
+tool merge two people's edits and you get one result with no memory of who did
+what or what was dropped. The story of how a thing came to be is thrown away at
+every step.
 
-A `.lync` file is UTF-8 JSONL: each line is one immutable event with an
-envelope, parent links, provenance, and a payload owned by the event kind.
-Merge is set union by event id. Branch trees, transcripts, memory views, and
-leaderboards are computed views over the same event set — never stored as
-truth themselves.
+lync keeps it. A `.lync` file is a list of events, one per line, in plain text.
+Each line records one thing that happened. Someone wrote a sentence, marked a
+version as good, or chose one branch over another. You never edit a line. To
+change something you add a new line that points at the old one and says what
+changed. The old line stays.
+
+That one rule, only ever add and never edit, is where everything good comes
+from. You can always see the whole history, every version and every branch you
+did not take. Merging two copies is safe and boring, because you keep every
+event from both and there are no edits to fight over. If the same event ever
+shows up two different ways, lync keeps both and says so out loud instead of
+quietly picking one. And because the file is plain text with a written-down
+spec, you can still read it in twenty years, on a computer that has never heard
+of this software.
+
+A lync file is more than a transcript, because it keeps the branches and the
+choices. From the same file you can make a readable document to hand someone,
+or training data built from the exact versions you marked as good.
+
+`@deepfates/lync` is the reference implementation. One package, zero runtime
+dependencies, holding the parser, the event stores, the computed views, the
+loom API, live sync, the `lync` command, and the sync relay. The format is the
+durable center. Everything else is a tool that reads and writes it.
 
 ## The Format
 
