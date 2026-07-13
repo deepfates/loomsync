@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { createLyncRelay, type LyncRelayOptions } from "./relay.js";
+import { createLyncRelay, type LyncRelayOptions, type LyncRoomStatus } from "./relay.js";
 
 /**
  * Run the relay standalone on its own HTTP server. For embedding in an
@@ -14,6 +14,8 @@ export interface LyncServeOptions extends LyncRelayOptions {
 
 export interface LyncSyncServer {
   port: number;
+  /** Read-only snapshot of the relay's live rooms. See `LyncRelay.status`. */
+  status: () => LyncRoomStatus[];
   close: () => Promise<void>;
 }
 
@@ -35,6 +37,7 @@ export async function startLyncServe(options: LyncServeOptions): Promise<LyncSyn
 
   return {
     port: address.port,
+    status: () => relay.status(),
     close: async () => {
       await relay.close();
       // Drop any lingering connections and release the listen handle. The

@@ -1,6 +1,6 @@
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
-import { createLyncRelay, type LyncRelayOptions, type LyncRelaySocket } from "./relay.js";
+import { createLyncRelay, type LyncRelayOptions, type LyncRelaySocket, type LyncRoomStatus } from "./relay.js";
 
 /**
  * Mount the relay on an existing Node HTTP server. Adds an `upgrade` listener
@@ -20,6 +20,8 @@ export interface AttachLyncServerOptions extends Omit<LyncRelayOptions, "dir" | 
 }
 
 export interface AttachedLyncServer {
+  /** Read-only snapshot of the relay's live rooms. See `LyncRelay.status`. */
+  status: () => LyncRoomStatus[];
   close: () => Promise<void>;
 }
 
@@ -69,6 +71,7 @@ export function attachLyncServer(server: Server, options: AttachLyncServerOption
   server.on("upgrade", onUpgrade);
 
   return {
+    status: () => relay.status(),
     close: async () => {
       server.off("upgrade", onUpgrade);
       if (pingTimer) clearInterval(pingTimer);

@@ -124,3 +124,113 @@ describe("createLyncRelay durability failures", () => {
     }
   });
 });
+
+describe("createLyncRelay status() — read-only observability", () => {
+  const cleanups: Array<() => Promise<void> | void> = [];
+
+  afterEach(async () => {
+    for (const c of cleanups.splice(0).reverse()) await c();
+  });
+
+  // Boot a throwaway HTTP server around a relay; return its ws url. Teardown
+  // (relay flush + server close) is registered so each test stays isolated.
+  async function boot(relay: ReturnType<typeof createLyncRelay>): Promise<string> {
+    const httpServer = createServer((_r, res) => res.writeHead(200).end());
+    httpServer.on("upgrade", (req, socket, head) => relay.handleUpgrade(req, socket, head));
+    const port = await new Promise<number>((resolve) =>
+      httpServer.listen(0, () => {
+        const a = httpServer.address();
+        resolve(typeof a === "object" && a ? a.port : 0);
+      }),
+    );
+    cleanups.push(async () => {
+      await relay.close();
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    });
+    return `ws://localhost:${port}`;
+  }
+
+  const line = (id: string) =>
+    JSON.stringify({ v: 1, id, kind: "lync/artifact", at: "2026-07-08T21:00:00Z", author: { actor: "x" }, parents: [], payload: {} });
+
+  it("reports each room's seq and live subscriber count accurately", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lync-status-"));
+    const relay = createLyncRelay({ dir, log: () => {} });
+    const url = await boot(relay);
+
+    // Three sockets on "alpha", one on "beta".
+    const subs = Array.from({ length: 4 }, () => createWebSocketTransport(url, { reconnectMs: 0 }));
+    cleanups.push(() => {
+      for (const t of subs) t.close();
+    });
+    subs[0].send({ t: "sub", root: "alpha", since: 0 });
+    subs[1].send({ t: "sub", root: "alpha", since: 0 });
+    subs[2].send({ t: "sub", root: "alpha", since: 0 });
+    subs[3].send({ t: "sub", root: "beta", since: 0 });
+    // Two accepted lines into alpha => seq 2; one into beta => seq 1.
+    subs[0].send({ t: "ev", root: "alpha", line: line("a1") });
+    subs[0].send({ t: "ev", root: "alpha", line: line("a2") });
+    subs[3].send({ t: "ev", root: "beta", line: line("b1") });
+
+    const byRoot = () => new Map(relay.status().map((r) => [r.root, r]));
+    await waitFor(() => {
+      const s = byRoot();
+      return (
+        s.get("alpha")?.seq === 2 &&
+        s.get("alpha")?.subscribers === 3 &&
+        s.get("beta")?.seq === 1 &&
+        s.get("beta")?.subscribers === 1
+      );
+    });
+
+    const s = byRoot();
+    expect(s.get("alpha")).toMatchObject({ root: "alpha", seq: 2, subscribers: 3, pendingUnpersisted: 0 });
+    expect(s.get("beta")).toMatchObject({ root: "beta", seq: 1, subscribers: 1, pendingUnpersisted: 0 });
+    // generation is a stable non-empty id for a live room.
+    expect(typeof s.get("alpha")?.generation).toBe("string");
+    expect((s.get("alpha")?.generation ?? "").length).toBeGreaterThan(0);
+  });
+
+  it("shows durability lag, heals to 0 on the next flush, and mutates nothing when read", async () => {
+    const { chmod } = await import("node:fs/promises");
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lync-status-lag-"));
+    const relay = createLyncRelay({ dir, log: () => {} });
+    const url = await boot(relay);
+    cleanups.push(async () => void (await chmod(dir, 0o755).catch(() => {})));
+
+    const t = createWebSocketTransport(url, { reconnectMs: 0 });
+    cleanups.push(() => t.close());
+    t.send({ t: "sub", root: "lag", since: 0 });
+    await waitFor(() => relay.status().some((r) => r.root === "lag"));
+
+    const of = (root: string) => relay.status().find((r) => r.root === root);
+
+    // Freeze the disk so the next append cannot land — the line is accepted
+    // into memory (seq consumed) but stays unpersisted.
+    await chmod(dir, 0o555);
+    t.send({ t: "ev", root: "lag", line: line("d1") });
+    await waitFor(() => (of("lag")?.pendingUnpersisted ?? 0) >= 1);
+
+    const stuck = of("lag")!;
+    expect(stuck.pendingUnpersisted).toBe(1);
+    expect(stuck.seq).toBe(1);
+
+    // status() is strictly read-only: repeated calls change nothing.
+    for (let i = 0; i < 5; i += 1) relay.status();
+    const afterReads = of("lag")!;
+    expect(afterReads.seq).toBe(1);
+    expect(afterReads.pendingUnpersisted).toBe(1);
+    expect(afterReads.subscribers).toBe(1);
+
+    // Heal the disk, then trigger a flush with the next append — persistPending
+    // drains the backlog in order before writing the new line.
+    await chmod(dir, 0o755);
+    t.send({ t: "ev", root: "lag", line: line("d2") });
+    await waitFor(() => (of("lag")?.pendingUnpersisted ?? 1) === 0);
+
+    const healed = of("lag")!;
+    expect(healed.pendingUnpersisted).toBe(0);
+    // The room still works: the second line was accepted, so seq advanced.
+    expect(healed.seq).toBe(2);
+  });
+});

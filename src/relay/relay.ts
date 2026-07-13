@@ -77,11 +77,37 @@ export interface LyncRelayOptions {
   log?: (message: string) => void;
 }
 
+/**
+ * A read-only snapshot of one live room, as `status()` reports it. Every field
+ * is a copy of existing room state — reading it mutates nothing.
+ */
+export interface LyncRoomStatus {
+  /** The room's root name (its `<root>.lync` file). */
+  root: string;
+  /** Log generation: fresh per recovery, carried on ev/live frames. */
+  generation: string;
+  /** Per-root arrival counter: the count of accepted lines, resume cursor. */
+  seq: number;
+  /** Live socket count subscribed to this room right now. */
+  subscribers: number;
+  /**
+   * Lines accepted into memory and broadcast but NOT yet on disk (a prior
+   * append failed) — the durability lag. 0 when the log is fully persisted.
+   */
+  pendingUnpersisted: number;
+}
+
 export interface LyncRelay {
   /** Handle an HTTP upgrade: authorize, upgrade, and wire the socket. */
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void;
   /** Wire a socket you upgraded yourself. */
   handleConnection(socket: LyncRelaySocket): void;
+  /**
+   * A read-only snapshot of every live room — its seq, live subscriber count,
+   * and durability lag (pending-unpersisted lines). Strictly observational:
+   * it reads existing room state and mutates nothing.
+   */
+  status(): LyncRoomStatus[];
   /** Close all sockets and flush every pending append. */
   close(): Promise<void>;
 }
@@ -118,6 +144,9 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   const log = options.log ?? ((message: string) => process.stderr.write(`${message}\n`));
   const dirReady = mkdir(options.dir, { recursive: true }).then(() => undefined);
   const rooms = new Map<string, Promise<Room>>();
+  // Resolved rooms, for the read-only status() surface only. A room lands here
+  // once recovery settles; never read on the write, sync, union, or close path.
+  const ready = new Map<string, Room>();
   const sockets = new Set<LyncRelaySocket>();
   const WebSocketServer = acquireWebSocketServer();
   const wss = new WebSocketServer({ noServer: true });
@@ -258,6 +287,9 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
     if (!pending) {
       pending = dirReady.then(() => recoverRoom(root));
       rooms.set(root, pending);
+      // Record the resolved room for status() to read. Purely observational:
+      // a recovery failure is left to the caller's rejection, never masked.
+      void pending.then((room) => ready.set(root, room), () => {});
     }
     return pending;
   }
@@ -363,9 +395,22 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
     }
   }
 
+  // A fresh array of plain records built from current room state — no handle
+  // into the room's mutable maps escapes, so a caller can never disturb it.
+  function status(): LyncRoomStatus[] {
+    return [...ready.values()].map((room) => ({
+      root: room.root,
+      generation: room.generation,
+      seq: room.seq,
+      subscribers: room.subscribers.size,
+      pendingUnpersisted: room.unpersisted.size,
+    }));
+  }
+
   return {
     handleUpgrade,
     handleConnection,
+    status,
     close: async () => {
       // Flush every pending append first — writeChains are kept resolved (never
       // rejected) by appendSerialized, so this settles promptly and no accepted

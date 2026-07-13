@@ -287,6 +287,13 @@ import { startLyncServe } from "@deepfates/lync/relay";
 
 const server = await startLyncServe({ dir: "./rooms", port: 8787 });
 console.log("relay on", server.port);
+
+// Look inside a running relay — read-only, mutates nothing. Each record is
+// { root, generation, seq, subscribers, pendingUnpersisted }, where
+// pendingUnpersisted is the durability lag: lines in memory but not yet on disk.
+for (const room of server.status()) {
+  console.log(room.root, "seq", room.seq, "subs", room.subscribers, "lag", room.pendingUnpersisted);
+}
 // later: await server.close();
 ```
 
@@ -309,7 +316,9 @@ httpServer.listen(3000);
 ```
 
 For full control, `createLyncRelay` gives you `handleUpgrade` to call from
-your own `upgrade` listener.
+your own `upgrade` listener. All three (`createLyncRelay`, `startLyncServe`,
+`attachLyncServer`) expose `status()` — a read-only snapshot of every live
+room's seq, subscriber count, and pending-unpersisted durability lag.
 
 Guarantees: same-id-different-bytes is never resolved — both variants are
 kept (a `.conflicts` sidecar) and both sides are told loudly. Persist failures
