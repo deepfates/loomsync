@@ -99,6 +99,14 @@ interface Room {
   seq: number;
   lines: string[];
   byId: Map<string, string>;
+  /**
+   * Lines accepted into memory (byId/lines) and broadcast, but NOT yet on
+   * disk because an append failed. Keyed by id, insertion order = append
+   * order — the relay's durable log must converge on this, in order, with no
+   * restart. Drained before the next append to the room and on a same-line
+   * re-push; a line clears only once its bytes reach disk.
+   */
+  unpersisted: Map<string, string>;
   subscribers: Set<LyncRelaySocket>;
   writeChain: Promise<void>;
   recoveryNote?: string;
@@ -184,7 +192,20 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
           }
           const existing = room.byId.get(id);
           if (existing !== undefined) {
-            if (existing === frame.line) return; // duplicate: a no-op by union
+            if (existing === frame.line) {
+              // Duplicate under union — normally a pure no-op. But if this line
+              // is still not on disk (a prior append failed), the re-push is our
+              // chance to heal without a restart: retry it (and any earlier
+              // pending line, in order). Nothing fails invisibly — a still-dead
+              // disk re-surfaces persist-failed.
+              if (room.unpersisted.has(id)) {
+                const { failedId } = await persistPending(room);
+                if (failedId !== undefined) {
+                  broadcast(room, { t: "err", root: room.root, reason: "persist-failed", detail: failedId });
+                }
+              }
+              return;
+            }
             const kept = await appendSerialized(room, join(options.dir, `${room.root}.conflicts`), frame.line);
             broadcast(room, { t: "err", root: room.root, reason: "same-id-conflict", detail: id }, socket);
             send(socket, { t: "err", root: room.root, reason: "same-id-conflict", detail: id });
@@ -200,12 +221,17 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
           room.lines.push(frame.line);
           room.seq += 1;
           const seq = room.seq;
-          const persisted = await appendSerialized(room, join(options.dir, `${room.root}.lync`), frame.line);
+          // Before writing this line, first drain any earlier lines that failed
+          // to persist — the on-disk log converges here, in order, with no
+          // restart. If an earlier line is still unwritable the disk write for
+          // this one is deferred too (it must not jump ahead), and this line
+          // joins the pending set to be retried on the next activity or re-push.
+          const { failedId } = await persistPending(room, { id, line: frame.line });
           // Live delivery is the relay's primary job: fan out even if the disk
           // write failed. A durability failure is surfaced loudly, never hidden.
           broadcast(room, { t: "ev", root: room.root, seq, line: frame.line, gen: room.generation });
-          if (!persisted.ok) {
-            broadcast(room, { t: "err", root: room.root, reason: "persist-failed", detail: id });
+          if (failedId !== undefined) {
+            broadcast(room, { t: "err", root: room.root, reason: "persist-failed", detail: failedId });
           }
           return;
         }
@@ -237,7 +263,7 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   }
 
   async function recoverRoom(root: string): Promise<Room> {
-    const room: Room = { root, generation: randomUUID(), seq: 0, lines: [], byId: new Map(), subscribers: new Set(), writeChain: Promise.resolve() };
+    const room: Room = { root, generation: randomUUID(), seq: 0, lines: [], byId: new Map(), unpersisted: new Map(), subscribers: new Set(), writeChain: Promise.resolve() };
     const path = join(options.dir, `${root}.lync`);
     if (!existsSync(path)) return room;
     const text = await readFile(path, "utf8");
@@ -278,6 +304,43 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
         },
       );
     room.writeChain = attempt.then(() => undefined);
+    return attempt;
+  }
+
+  // Converge the room's on-disk log with no restart. As ONE serialized unit
+  // on the room's writeChain, write every currently-unpersisted line in append
+  // order, then `tail` (a freshly accepted line, if any). Each line that lands
+  // clears from `unpersisted`; the first failure stops the run and leaves that
+  // line and every LATER one pending, in order — a later line is never written
+  // ahead of an earlier one for the same room. Lines already on disk are never
+  // re-written (only the pending set and the new tail are touched), and each
+  // append writes one whole `line\n`, so a partial failure never corrupts the
+  // file. Returns the id of the first line that still could not persist, or
+  // undefined if everything (including tail) reached disk.
+  function persistPending(room: Room, tail?: { id: string; line: string }): Promise<{ failedId?: string }> {
+    const path = join(options.dir, `${room.root}.lync`);
+    const attempt = room.writeChain.catch(() => undefined).then(async (): Promise<{ failedId?: string }> => {
+      const queue: Array<[string, string]> = [...room.unpersisted];
+      if (tail) queue.push([tail.id, tail.line]);
+      for (let index = 0; index < queue.length; index += 1) {
+        const [id, line] = queue[index];
+        try {
+          await appendFile(path, `${line}\n`);
+          room.unpersisted.delete(id);
+        } catch (error) {
+          log(`[lync relay] persist failed for ${path}: ${String(error)}`);
+          // This line and every later one stay pending, in append order, so
+          // the next activity retries from here without reordering the log.
+          for (let rest = index; rest < queue.length; rest += 1) {
+            const [pendingId, pendingLine] = queue[rest];
+            if (!room.unpersisted.has(pendingId)) room.unpersisted.set(pendingId, pendingLine);
+          }
+          return { failedId: id };
+        }
+      }
+      return {};
+    });
+    room.writeChain = attempt.then(() => undefined, () => undefined);
     return attempt;
   }
 
