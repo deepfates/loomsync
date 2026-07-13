@@ -10,3 +10,6 @@ dist/
 /VERDICT-*.md
 /.tickets/
 /FRESHREAD*.md
+
+# packed tarballs
+*.tgz
