@@ -370,6 +370,15 @@ Ordering for a live multiplayer world is its own pact. If a world needs a
 global sequence, it carries `seq` in payload. Who may fork it is governance,
 not data.
 
+Absent from the format does not mean absent from the toolbox — it means
+layered above it. The reference implementation ships a sync relay and a sync
+client beside this spec; they are tools that happen to move `.lync` lines,
+not part of the format. Because events are immutable and merge is set union
+by id, any transport that delivers canonical line bytes converges the same
+files: a WebSocket relay, `rsync`, an email attachment, or a USB stick are
+all conformant sync mechanisms. An implementation of this document is
+complete without implementing any of them.
+
 ## Worked Example
 
 Five events: a paragraph, two alternatives, a judge's score, and a declared
