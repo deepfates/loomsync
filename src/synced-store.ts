@@ -1,6 +1,6 @@
 import type { EventStore, StoredEvent, AppendResult } from "./store.js";
 import type { LyncEventBody } from "./events.js";
-import { decodeFrame, encodeFrame, type SyncFrame } from "./sync-protocol.js";
+import { decodeFrame, encodeFrame, type LyncPresence, type SyncFrame } from "./sync-protocol.js";
 
 /**
  * Live sync for an EventStore, built on the dumb line-union protocol.
@@ -47,14 +47,19 @@ export interface SyncTransport {
 
 export interface SyncedStoreOptions {
   onStatus?: (status: SyncStatus) => void;
-  onPresence?: (root: string, data: unknown) => void;
+  /**
+   * Fires for every inbound presence frame: the root, the sender's per-client
+   * participant id, and the typed awareness payload. Ephemeral — never a stored
+   * event. Feed this straight into a PresenceAwareness (see presence-awareness).
+   */
+  onPresence?: (root: string, client: string, presence: LyncPresence) => void;
 }
 
 export interface SyncedStore extends EventStore {
   /** Begin syncing a root: push local backlog, then subscribe from the cursor. */
   syncRoot(rootId: string): void;
   /** Relay an ephemeral presence frame for a root; never stored. */
-  presence(root: string, data: unknown): void;
+  presence(root: string, client: string, data: LyncPresence): void;
   status(): SyncStatus;
   close(): void;
 }
@@ -221,7 +226,7 @@ export function createSyncedStore(
         return;
       }
       case "presence": {
-        options.onPresence?.(frame.root, frame.data);
+        options.onPresence?.(frame.root, frame.client, frame.data);
         return;
       }
       case "err": {
@@ -281,7 +286,7 @@ export function createSyncedStore(
     ...(inner.exportRootBytes ? { exportRootBytes: (rootId: string) => inner.exportRootBytes!(rootId) } : {}),
     ...(inner.diagnostics ? { diagnostics: () => inner.diagnostics!() } : {}),
     syncRoot: ensureSynced,
-    presence: (root, data) => transport.send({ t: "presence", root, data }),
+    presence: (root, client, data) => transport.send({ t: "presence", root, client, data }),
     status: () => ({ connection, liveRoots: [...liveRoots], conflicts: [...conflicts], failures: [...failures] }),
     close: () => transport.close(),
   };

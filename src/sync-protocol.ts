@@ -9,7 +9,7 @@
  *   server → client   {"t":"ev",   "root": string, "seq": number, "line": string, "gen"?: string}
  *   server → client   {"t":"live", "root": string, "seq": number, "gen"?: string}
  *   client → server   {"t":"ev",   "root": string, "line": string}
- *   either direction  {"t":"presence", "root": string, "data"?: unknown}
+ *   either direction  {"t":"presence", "root": string, "client": string, "data": LyncPresence}
  *   either direction  {"t":"err",  "root"?: string, "reason": string, "detail"?: string}
  *
  * `seq` is the server's own per-root arrival counter — a resume cursor, not
@@ -52,10 +52,43 @@ export interface LiveFrame {
   gen?: string;
 }
 
+/**
+ * Ephemeral awareness payload — who is on a loom right now and where their
+ * attention sits. Carried ONLY on a {t:"presence"} frame and NEVER stored as a
+ * durable event: the relay fans presence out and forgets it.
+ *
+ * `clock` is a monotonic uint minted per client (a participant). A receiver
+ * applies an incoming entry for a client IFF its clock is strictly greater than
+ * the last one seen from that same client — last-writer-wins PER PARTICIPANT,
+ * no CRDT merge. `state === null` is a graceful leave: remove that participant
+ * immediately.
+ */
+export interface LyncPresence {
+  /** Monotonic uint per client. Apply iff strictly greater than the last seen. */
+  clock: number;
+  /** null == graceful leave (remove immediately). */
+  state: null | {
+    /** Author identity — the SAME string used for durable turn authorship. */
+    actor: string;
+    /** Controller, e.g. "textile-browser". */
+    via?: string;
+    /** Id of the node the participant's attention is on (their tree cursor). */
+    focus?: string | null;
+    /** Is the participant composing right now. */
+    typing?: boolean;
+  };
+}
+
 export interface PresenceFrame {
   t: "presence";
   root: string;
-  data?: unknown;
+  /**
+   * Per-connection participant id — the key the awareness layer applies LWW
+   * over and reports in its {added,updated,removed} callback. Distinct from
+   * `data.state.actor`: one actor (human) may drive several clients.
+   */
+  client: string;
+  data: LyncPresence;
 }
 
 export interface ErrFrame {
@@ -75,6 +108,37 @@ const FRAME_KINDS = new Set(["sub", "ev", "live", "presence", "err"]);
  */
 export function isCursor(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * Validate and canonicalize a LyncPresence payload. Returns a fresh object
+ * carrying ONLY the known fields (unknown extras from a newer peer are dropped,
+ * never fatal), or undefined if the shape is not a LyncPresence. A malformed
+ * awareness payload must never poison the per-participant clock, so this is
+ * strict about the fields it does read: `clock` a nonnegative integer, `state`
+ * either null or an object with a string `actor` and optional well-typed
+ * via/focus/typing.
+ */
+function normalizePresence(value: unknown): LyncPresence | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (!isCursor(raw.clock)) return undefined;
+  if (raw.state === null) return { clock: raw.clock, state: null };
+  if (typeof raw.state !== "object" || Array.isArray(raw.state)) return undefined;
+  const s = raw.state as Record<string, unknown>;
+  if (typeof s.actor !== "string") return undefined;
+  if (s.via !== undefined && typeof s.via !== "string") return undefined;
+  if (s.focus !== undefined && s.focus !== null && typeof s.focus !== "string") return undefined;
+  if (s.typing !== undefined && typeof s.typing !== "boolean") return undefined;
+  return {
+    clock: raw.clock,
+    state: {
+      actor: s.actor,
+      ...(s.via !== undefined ? { via: s.via as string } : {}),
+      ...(s.focus !== undefined ? { focus: s.focus as string | null } : {}),
+      ...(s.typing !== undefined ? { typing: s.typing as boolean } : {}),
+    },
+  };
 }
 
 export function encodeFrame(frame: SyncFrame): string {
@@ -142,11 +206,16 @@ export function decodeFrame(raw: string | Uint8Array): SyncFrame {
         seq: frame.seq as number,
         ...(frame.gen !== undefined ? { gen: frame.gen as string } : {}),
       };
-    case "presence":
-      if (typeof frame.root !== "string") {
+    case "presence": {
+      if (typeof frame.root !== "string" || typeof frame.client !== "string") {
         return { t: "err", reason: "malformed-presence" };
       }
-      return { t: "presence", root: frame.root, data: frame.data };
+      const presence = normalizePresence(frame.data);
+      if (presence === undefined) {
+        return { t: "err", reason: "malformed-presence", detail: "data is not a LyncPresence" };
+      }
+      return { t: "presence", root: frame.root, client: frame.client, data: presence };
+    }
     default:
       return {
         t: "err",
