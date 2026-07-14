@@ -1,0 +1,126 @@
+{
+  "artifact_schema": "lync.loss-free-trial.v1",
+  "ticket": "dee-i1wc",
+  "recorded_at": "2026-07-14T00:10:33.937Z",
+  "owner_law": "world-charter milestone-6: durable, loss-free live sync",
+  "claim": "Every event a client SUCCESSFULLY appended (local append returned 'added') reaches every other client's store AND the relay's on-disk .lync file — through a disconnect, a storage failure, and a server restart — and every failure that occurred was surfaced, never swallowed.",
+  "root": "trial",
+  "appended_by_client": {
+    "alice": [
+      "a1",
+      "a2",
+      "post",
+      "trial"
+    ],
+    "bob": [],
+    "carol": [
+      "x1"
+    ]
+  },
+  "promised_ids": [
+    "a1",
+    "a2",
+    "post",
+    "trial",
+    "x1"
+  ],
+  "landing": {
+    "a1": {
+      "stores": {
+        "alice": true,
+        "bob": true,
+        "carol": true
+      },
+      "onDisk": true
+    },
+    "a2": {
+      "stores": {
+        "alice": true,
+        "bob": true,
+        "carol": true
+      },
+      "onDisk": true
+    },
+    "post": {
+      "stores": {
+        "alice": true,
+        "bob": true,
+        "carol": true
+      },
+      "onDisk": true
+    },
+    "trial": {
+      "stores": {
+        "alice": true,
+        "bob": true,
+        "carol": true
+      },
+      "onDisk": true
+    },
+    "x1": {
+      "stores": {
+        "alice": true,
+        "bob": true,
+        "carol": true
+      },
+      "onDisk": true
+    }
+  },
+  "final_disk_ids": [
+    "a1",
+    "a2",
+    "post",
+    "trial",
+    "x1"
+  ],
+  "surfaced_failures": [
+    {
+      "actor": "alice",
+      "failures": [
+        "relay error for trial: persist-failed (x1)",
+        "generation changed for trial (7bd941ce-cc65-4ccd-a7e3-a96b12ae06b7 -> f8bd70f6-aaec-4f08-b0df-f991b4ea7178); resyncing from 0"
+      ]
+    },
+    {
+      "actor": "bob",
+      "failures": [
+        "relay error for trial: persist-failed (x1)",
+        "generation changed for trial (7bd941ce-cc65-4ccd-a7e3-a96b12ae06b7 -> f8bd70f6-aaec-4f08-b0df-f991b4ea7178); resyncing from 0"
+      ]
+    },
+    {
+      "actor": "carol",
+      "failures": [
+        "relay error for trial: persist-failed (x1)",
+        "generation changed for trial (7bd941ce-cc65-4ccd-a7e3-a96b12ae06b7 -> f8bd70f6-aaec-4f08-b0df-f991b4ea7178); resyncing from 0"
+      ]
+    }
+  ],
+  "legs": [
+    {
+      "leg": "a",
+      "name": "disconnect / reconnect",
+      "event_ids": [
+        "a1",
+        "a2"
+      ],
+      "surfaced": "bob's connection went offline then online; caught up with nothing skipped"
+    },
+    {
+      "leg": "b",
+      "name": "storage failure (.lync read-only)",
+      "event_ids": [
+        "x1"
+      ],
+      "surfaced": "persist-failed on every client; x1 fanned to every store but not on disk until leg c"
+    },
+    {
+      "leg": "c",
+      "name": "server restart (new log generation)",
+      "event_ids": [
+        "post"
+      ],
+      "surfaced": "generation changed on every client; backlog re-pushed, x1 finally reached disk"
+    }
+  ]
+}

@@ -3,8 +3,10 @@ import { existsSync, watch } from "node:fs";
 import { basename } from "node:path";
 import { decodeFrame, encodeFrame, extractLineId, isCursor } from "../sync-protocol.js";
 
-// Sync rides Node's built-in WebSocket (global since Node 22, matching
-// engines) — no dependency. It is an EventTarget, not an EventEmitter:
+// Sync rides Node's built-in WebSocket (global and unflagged since Node 21) —
+// no dependency. This is the strict floor for the `sync` verb, stricter than
+// the package's browser-safe-core engines (Node >=19); it is pinned on this
+// surface, not the whole package. It is an EventTarget, not an EventEmitter:
 // listeners via addEventListener, payloads on MessageEvent.data, and no
 // terminate(); the hard-abort timeout below settles the promise by rejection
 // and then close() tears the socket down (aborting the handshake if still

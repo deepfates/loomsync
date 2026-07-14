@@ -304,6 +304,12 @@ export interface WebSocketTransportOptions {
  * flushed on connect; a dropped socket schedules a reconnect and the synced
  * store re-subscribes via `onOpen`. Nothing is silently dropped: an unsent
  * frame waits in the queue rather than vanishing.
+ *
+ * Runtime floor for THIS surface (not the whole package): it reaches for the
+ * global `WebSocket`, unflagged only on Node >=21 (browsers always have it).
+ * On older Node pass `options.WebSocketImpl` (e.g. the `ws` package). The
+ * package's `engines.node` is the looser >=19 core floor; this stricter
+ * requirement is pinned here where it actually applies.
  */
 export function createWebSocketTransport(url: string, options: WebSocketTransportOptions = {}): SyncTransport {
   const WS = options.WebSocketImpl ?? (globalThis as { WebSocket?: typeof WebSocket }).WebSocket;

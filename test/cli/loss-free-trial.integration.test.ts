@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chmod, mkdtemp, readFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createMemoryEventStore } from "@deepfates/lync/memory-log";
@@ -227,5 +227,57 @@ describe("loss-free trial (dee-i1wc): the milestone-6 durability proof", () => {
         expect(await cl.store.byId(id)).not.toBeNull();
       }
     }
+
+    // ---- Emit the inspectable trial artifact (parity with golarion dee-3fxq)
+    // 'done' is not quietly 'tests pass': write a person-readable record of
+    // every appended id, where it landed (each client's store + the relay's
+    // on-disk .lync), and every surfaced failure — the same evidence the
+    // assertions above checked, made replayable by an outside reader.
+    const promisedIds = [...promised()].sort();
+    const landing: Record<string, { stores: Record<string, boolean>; onDisk: boolean }> = {};
+    for (const id of promisedIds) {
+      const stores: Record<string, boolean> = {};
+      for (const cl of clients) stores[cl.actor] = (await cl.store.byId(id)) !== null;
+      landing[id] = { stores, onDisk: finalDisk.has(id) };
+    }
+    // Every failure any client surfaced across the run — deduped, never swallowed.
+    const surfacedFailures = clients.map((cl) => {
+      const all = new Set<string>();
+      for (const s of cl.statuses) for (const f of s.failures) all.add(f);
+      for (const f of cl.store.status().failures) all.add(f);
+      return { actor: cl.actor, failures: [...all] };
+    });
+    const artifact = {
+      artifact_schema: "lync.loss-free-trial.v1",
+      ticket: "dee-i1wc",
+      recorded_at: new Date().toISOString(),
+      owner_law: "world-charter milestone-6: durable, loss-free live sync",
+      claim:
+        "Every event a client SUCCESSFULLY appended (local append returned 'added') reaches every other client's store AND the relay's on-disk .lync file — through a disconnect, a storage failure, and a server restart — and every failure that occurred was surfaced, never swallowed.",
+      root: ROOT,
+      appended_by_client: Object.fromEntries(clients.map((cl) => [cl.actor, [...cl.appended].sort()])),
+      promised_ids: promisedIds,
+      landing,
+      final_disk_ids: [...finalDisk].sort(),
+      surfaced_failures: surfacedFailures,
+      legs: [
+        { leg: "a", name: "disconnect / reconnect", event_ids: ["a1", "a2"], surfaced: "bob's connection went offline then online; caught up with nothing skipped" },
+        { leg: "b", name: "storage failure (.lync read-only)", event_ids: ["x1"], surfaced: "persist-failed on every client; x1 fanned to every store but not on disk until leg c" },
+        { leg: "c", name: "server restart (new log generation)", event_ids: ["post"], surfaced: "generation changed on every client; backlog re-pushed, x1 finally reached disk" },
+      ],
+    };
+    const trialsDir = new URL("../../docs/trials/", import.meta.url);
+    await mkdir(trialsDir, { recursive: true });
+    const artifactPath = new URL("loss-free-trial.json", trialsDir);
+    await writeFile(artifactPath, JSON.stringify(artifact, null, 2) + "\n");
+
+    // The artifact must describe an actually loss-free run: nothing missing.
+    for (const id of promisedIds) {
+      expect(landing[id].onDisk).toBe(true);
+      for (const cl of clients) expect(landing[id].stores[cl.actor]).toBe(true);
+    }
+    // And it recorded that the durability failures WERE surfaced, not hidden.
+    expect(surfacedFailures.every((c) => c.failures.some((f) => f.includes("persist-failed")))).toBe(true);
+    expect(surfacedFailures.every((c) => c.failures.some((f) => f.includes("generation changed")))).toBe(true);
   }, 30_000);
 });
