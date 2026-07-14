@@ -1,6 +1,6 @@
 {
   "name": "@deepfates/lync",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The lync format: append-only JSONL event logs merged by set union. Parsing, stores, views, looms, live sync, loom client, indexes, the sync relay, and the lync command. Zero dependencies.",
   "type": "module",
   "license": "MIT",
@@ -95,6 +95,11 @@
       "types": "./dist/synced-store.d.ts",
       "import": "./dist/synced-store.js",
       "default": "./dist/synced-store.js"
+    },
+    "./presence-awareness": {
+      "types": "./dist/presence-awareness.d.ts",
+      "import": "./dist/presence-awareness.js",
+      "default": "./dist/presence-awareness.js"
     },
     "./uuid": {
       "types": "./dist/uuid.d.ts",

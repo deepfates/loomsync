@@ -8,7 +8,13 @@ describe("lync sync protocol frames", () => {
       { t: "ev", root: "story", line: '{"id":"a"}', seq: 3 },
       { t: "ev", root: "story", line: '{"id":"b"}' },
       { t: "live", root: "story", seq: 7 },
-      { t: "presence", root: "story", data: { cursor: 4 } },
+      {
+        t: "presence",
+        root: "story",
+        client: "client-1",
+        data: { clock: 4, state: { actor: "alice", via: "textile-browser", focus: "node-7", typing: true } },
+      },
+      { t: "presence", root: "story", client: "client-1", data: { clock: 5, state: null } },
       { t: "err", root: "story", reason: "same-id-conflict", detail: "a" },
     ];
     for (const frame of frames) {
