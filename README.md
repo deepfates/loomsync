@@ -92,7 +92,15 @@ expected-output schema; `generate.py` regenerates digests deterministically.
 npm install @deepfates/lync
 ```
 
-Runs in Node (>=22) and the browser. No dependencies.
+Runs in Node and the browser. No dependencies. The browser-safe core
+(parse, stores, views, looms, indexes, the loom client) needs only the Web
+Crypto global, so its floor is **Node >=19** (or any browser) — that is the
+`engines.node` the package declares. Two surfaces need a stricter runtime, and
+that requirement is pinned where it applies, not on the whole package: the ws
+sync transport (`@deepfates/lync/synced-store` `createWebSocketTransport`) and
+`lync sync` reach for the built-in `WebSocket` global, unflagged only on **Node
+>=21** — pass your own `WebSocketImpl` to run them on anything older. See
+[Live sync inside an app](#live-sync-inside-an-app) and [The Command](#the-command).
 
 ### Parse, union, view
 
@@ -221,7 +229,11 @@ same `union` path and surface reactively. Offline appends queue and flush on
 reconnect; the store re-subscribes automatically. The transport is an
 interface — pass your own for tests or a non-WebSocket carrier. The client
 side uses the platform's built-in WebSocket: no dependency, in the browser or
-in Node.
+in Node. **Runtime floor for this surface:** the built-in `WebSocket` global is
+unflagged only on **Node >=21** (the browser always has it); on older Node,
+`createWebSocketTransport` throws unless you pass `options.WebSocketImpl` (e.g.
+the `ws` package). This is stricter than the package's `engines.node` (>=19),
+which is set for the browser-safe core alone.
 
 ### Subpath exports
 
@@ -275,9 +287,10 @@ lync sync story.lync ws://host:8787         # one-shot: push what it lacks, pull
 lync sync story.lync ws://host:8787 --follow  # stay live until Ctrl-C
 ```
 
-`lync sync` uses Node's built-in WebSocket — no install beyond the package.
-`lync serve` runs the relay and needs `ws` present (`npm install ws`); see
-below.
+`lync sync` uses Node's built-in `WebSocket` — no install beyond the package,
+but that global is unflagged only on **Node >=21**, so the sync verb needs that
+runtime (stricter than the package's `engines.node` >=19 core floor). `lync
+serve` runs the relay and needs `ws` present (`npm install ws`); see below.
 
 ## The Relay
 
