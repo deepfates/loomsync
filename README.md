@@ -1,5 +1,9 @@
 # lync
 
+> **Status:** the lync format is a v0 draft (see [FORMAT.md](./FORMAT.md));
+> the `v:1` event envelope is stable. This package is the reference
+> implementation.
+
 Most software forgets. Edit a document and yesterday's version is gone. Write
 with an AI that offers three options and the two you do not pick vanish. Let a
 tool merge two people's edits and you get one result with no memory of who did
@@ -67,6 +71,19 @@ format — see [pacts/import.md](./pacts/import.md) (imports are transcription:
 deterministic ids, provenance preserved, zero silent drops) and
 [pacts/export.md](./pacts/export.md) (exports are projections of the event
 log, including training data).
+
+## Why not Yjs / Automerge?
+
+Because there is nothing to merge. CRDT libraries solve concurrent mutation
+of shared state — two people editing the same paragraph — and they solve it
+well; if your data mutates, use one. lync events never mutate: correction,
+judgment, and retraction are new events pointing at old ones, so two replicas
+combine by plain set union of ids, with no operational transform, no vector
+clocks, no merge algorithm at all. The same id with different bytes is not
+resolved cleverly — both variants are kept and surfaced loudly. That trade
+buys a durable plain-text format any transport converges (a relay, `rsync`,
+an email attachment), at the cost of not being a live shared document. The
+one ephemeral surface, presence, uses last-writer-wins clocks, not a CRDT.
 
 ## Conformance Vectors
 
@@ -235,6 +252,45 @@ unflagged only on **Node >=21** (the browser always has it); on older Node,
 the `ws` package). This is stricter than the package's `engines.node` (>=19),
 which is set for the browser-safe core alone.
 
+### Presence: who is here right now
+
+Presence is the one ephemeral thing in lync: the relay fans out `presence`
+frames and never stores them, so every client keeps its OWN roster of who is
+present. `@deepfates/lync/presence-awareness` is that roster — a small
+state machine with last-writer-wins clocks per participant, TTL sweeps for
+peers that go quiet, and heartbeats so late joiners recover you. It is keyed
+by client (one person on two devices is two participants), and `state: null`
+is a graceful leave.
+
+The machine is pure and transport-agnostic. Below, two participants are wired
+directly to each other; in an app you wire `send` to `SyncedStore.presence`
+and feed `SyncedStore.onPresence` into `receive`, then call `start()` for
+real heartbeat and sweep timers:
+
+```ts
+import { createPresenceAwareness } from "@deepfates/lync/presence-awareness";
+
+const alice = createPresenceAwareness({
+  client: "alice-laptop",
+  send: (root, client, data) => bob.receive(root, client, data),
+});
+const bob = createPresenceAwareness({
+  client: "bob-phone",
+  send: (root, client, data) => alice.receive(root, client, data),
+  onDelta: (root, delta) =>
+    console.log(root, "joined:", delta.added.map((p) => p.state.actor)),
+});
+
+alice.setLocal("story", { actor: "alice", typing: true });
+console.log(bob.roster("story").map((p) => `${p.state.actor} typing=${p.state.typing}`));
+alice.setLocal("story", null); // graceful leave: bob's roster drops alice at once
+console.log("after leave:", bob.roster("story").length); // 0
+```
+
+`roster(root)` is the current view, `onDelta` fires on every add, update, and
+remove (including TTL timeouts). Clocks order states; liveness is separate,
+so a heartbeat refreshes a peer without burning a new clock.
+
 ### Subpath exports
 
 - `@deepfates/lync/events` — line parsing, carried-byte export, incremental union
@@ -246,6 +302,7 @@ which is set for the browser-safe core alone.
 - `@deepfates/lync/references` — loom/turn/thread/index references and URLs
 - `@deepfates/lync/synced-store` — live sync decorator and WebSocket transport
 - `@deepfates/lync/sync-protocol` — the five sync frames, encode/decode
+- `@deepfates/lync/presence-awareness` — client-side who-is-here roster over presence frames
 - `@deepfates/lync/uuid` — zero-dep UUIDv7 for event ids
 - `@deepfates/lync/indexes`, `@deepfates/lync/indexes/entries`,
   `@deepfates/lync/indexes/memory`, `@deepfates/lync/indexes/types` — loom indexes

@@ -176,8 +176,7 @@ export async function syncOnce(options: LyncSyncOptions): Promise<LyncSyncResult
     socket.addEventListener("error", (event) => {
       clearTimeout(timeout);
       watcher?.close();
-      const detail = (event as { message?: unknown }).message;
-      reject(new Error(`lync sync: socket error from ${options.url}${typeof detail === "string" ? `: ${detail}` : ""}`));
+      reject(new Error(`lync sync: socket error from ${options.url}: ${socketErrorReason(event)}`));
     });
 
     socket.addEventListener("open", () => {
@@ -267,6 +266,24 @@ export async function syncOnce(options: LyncSyncOptions): Promise<LyncSyncResult
   await pushChain;
   await persistCursor();
   return result;
+}
+
+/**
+ * A non-empty, human-readable reason for a socket `error` event. Node's
+ * built-in WebSocket fires an ErrorEvent whose `message` can be the empty
+ * string (a dead relay used to print "socket error from ws://...:" with
+ * nothing after the colon). Prefer the event message, then the underlying
+ * error's message, code (e.g. ECONNREFUSED), or name, and never return "".
+ */
+export function socketErrorReason(event: unknown): string {
+  const { message, error } = (event ?? {}) as { message?: unknown; error?: unknown };
+  if (typeof message === "string" && message.trim().length > 0) return message.trim();
+  if (error instanceof Error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    const detail = error.message.trim() || (typeof code === "string" ? code : "") || error.name;
+    if (detail.length > 0) return detail;
+  }
+  return "connection failed (the socket reported no reason)";
 }
 
 function defaultRoot(file: string): string {

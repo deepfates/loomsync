@@ -149,7 +149,9 @@
   },
   "files": [
     "bin",
-    "dist"
+    "dist",
+    "FORMAT.md",
+    "pacts"
   ],
   "dependencies": {},
   "scripts": {

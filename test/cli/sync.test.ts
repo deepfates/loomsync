@@ -396,4 +396,40 @@ describe("conflict sidecar durability (dee-inzc major)", () => {
     expect(errs.text()).toContain("conflict-persist-failed");
     expect(existsSync(path.join(serverDir, "duel.conflicts"))).toBe(false);
   });
+
+  it("reports a non-empty reason when the relay is dead (never a bare trailing colon)", async () => {
+    // A port with nothing listening: start a relay, note its port, kill it.
+    const serverDir = await mkdtemp(path.join(os.tmpdir(), "lync-serve-"));
+    const clientDir = await mkdtemp(path.join(os.tmpdir(), "lync-client-"));
+    const doomed = await startLyncServe({ dir: serverDir, log: () => {} });
+    const url = `ws://localhost:${doomed.port}`;
+    await doomed.close();
+
+    const file = path.join(clientDir, "story.lync");
+    await writeFile(file, `${eventLine("root", [], "once")}\n`);
+
+    const rejection = await syncOnce({ file, url, root: "story", out: quiet, err: quiet }).then(
+      () => undefined,
+      (error: unknown) => error as Error,
+    );
+    expect(rejection).toBeInstanceOf(Error);
+    expect(rejection!.message).toContain(`socket error from ${url}: `);
+    // The reason after the colon must never be empty.
+    const reason = rejection!.message.split(`socket error from ${url}: `)[1];
+    expect(reason.trim().length).toBeGreaterThan(0);
+  });
+});
+
+describe("socketErrorReason", () => {
+  it("is non-empty for every shape a socket error event takes", async () => {
+    const { socketErrorReason } = await import("../../src/cli/sync.js");
+    expect(socketErrorReason({ message: "boom" })).toBe("boom");
+    // Node's ErrorEvent with an empty message but an underlying error.
+    const refused = Object.assign(new Error(""), { code: "ECONNREFUSED" });
+    expect(socketErrorReason({ message: "", error: refused })).toBe("ECONNREFUSED");
+    expect(socketErrorReason({ message: "", error: new Error("dial failed") })).toBe("dial failed");
+    // Nothing usable at all: still says something.
+    expect(socketErrorReason({ message: "" }).length).toBeGreaterThan(0);
+    expect(socketErrorReason(undefined).length).toBeGreaterThan(0);
+  });
 });
