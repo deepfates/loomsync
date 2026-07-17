@@ -1,7 +1,8 @@
 # lync
 
 > **Status:** the lync format is a v0 draft (see [FORMAT.md](./FORMAT.md));
-> the `v:1` event envelope is stable. This package is the reference
+> the `v:1` event envelope has not changed since first publication and any
+> change would come with a version bump. This package is the reference
 > implementation.
 
 Most software forgets. Edit a document and yesterday's version is gone. Write
