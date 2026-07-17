@@ -1,7 +1,7 @@
 {
   "artifact_schema": "lync.loss-free-trial.v1",
   "ticket": "dee-i1wc",
-  "recorded_at": "2026-07-14T00:10:33.937Z",
+  "recorded_at": "2026-07-17T01:17:44.670Z",
   "owner_law": "world-charter milestone-6: durable, loss-free live sync",
   "claim": "Every event a client SUCCESSFULLY appended (local append returned 'added') reaches every other client's store AND the relay's on-disk .lync file — through a disconnect, a storage failure, and a server restart — and every failure that occurred was surfaced, never swallowed.",
   "root": "trial",
@@ -78,21 +78,21 @@
       "actor": "alice",
       "failures": [
         "relay error for trial: persist-failed (x1)",
-        "generation changed for trial (7bd941ce-cc65-4ccd-a7e3-a96b12ae06b7 -> f8bd70f6-aaec-4f08-b0df-f991b4ea7178); resyncing from 0"
+        "generation changed for trial (d813109c-79f8-41e3-ad7f-d98be9514393 -> ffbdc1f9-2b4d-4c49-907e-d6efeb14e57c); resyncing from 0"
       ]
     },
     {
       "actor": "bob",
       "failures": [
         "relay error for trial: persist-failed (x1)",
-        "generation changed for trial (7bd941ce-cc65-4ccd-a7e3-a96b12ae06b7 -> f8bd70f6-aaec-4f08-b0df-f991b4ea7178); resyncing from 0"
+        "generation changed for trial (d813109c-79f8-41e3-ad7f-d98be9514393 -> ffbdc1f9-2b4d-4c49-907e-d6efeb14e57c); resyncing from 0"
       ]
     },
     {
       "actor": "carol",
       "failures": [
         "relay error for trial: persist-failed (x1)",
-        "generation changed for trial (7bd941ce-cc65-4ccd-a7e3-a96b12ae06b7 -> f8bd70f6-aaec-4f08-b0df-f991b4ea7178); resyncing from 0"
+        "generation changed for trial (d813109c-79f8-41e3-ad7f-d98be9514393 -> ffbdc1f9-2b4d-4c49-907e-d6efeb14e57c); resyncing from 0"
       ]
     }
   ],
