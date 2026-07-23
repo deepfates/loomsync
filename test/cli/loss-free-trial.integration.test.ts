@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createMemoryEventStore } from "@deepfates/lync/memory-log";
@@ -228,11 +228,13 @@ describe("loss-free trial (dee-i1wc): the milestone-6 durability proof", () => {
       }
     }
 
-    // ---- Emit the inspectable trial artifact (parity with golarion dee-3fxq)
+    // ---- Emit an inspectable per-run trial artifact ----------------------
     // 'done' is not quietly 'tests pass': write a person-readable record of
     // every appended id, where it landed (each client's store + the relay's
-    // on-disk .lync), and every surfaced failure — the same evidence the
-    // assertions above checked, made replayable by an outside reader.
+    // on-disk .lync), and every surfaced failure. Keep the live artifact in
+    // this trial's isolated temporary directory: recorded_at and relay
+    // generation ids are intentionally different on every run, so ordinary
+    // verification must never rewrite the checked-in historical witness.
     const promisedIds = [...promised()].sort();
     const landing: Record<string, { stores: Record<string, boolean>; onDisk: boolean }> = {};
     for (const id of promisedIds) {
@@ -266,10 +268,9 @@ describe("loss-free trial (dee-i1wc): the milestone-6 durability proof", () => {
         { leg: "c", name: "server restart (new log generation)", event_ids: ["post"], surfaced: "generation changed on every client; backlog re-pushed, x1 finally reached disk" },
       ],
     };
-    const trialsDir = new URL("../../docs/trials/", import.meta.url);
-    await mkdir(trialsDir, { recursive: true });
-    const artifactPath = new URL("loss-free-trial.json", trialsDir);
+    const artifactPath = path.join(dir, "loss-free-trial.json");
     await writeFile(artifactPath, JSON.stringify(artifact, null, 2) + "\n");
+    expect(JSON.parse(await readFile(artifactPath, "utf8"))).toEqual(artifact);
 
     // The artifact must describe an actually loss-free run: nothing missing.
     for (const id of promisedIds) {
