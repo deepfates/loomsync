@@ -5,8 +5,9 @@ meaning should land in pacts, not in the envelope.
 
 ## Now
 
-- First public release of the one package: `@deepfates/lync` (library, indexes,
-  client, relay, and the `lync` command).
+- The public package is `@deepfates/lync` 0.3.0. Main is prepared as 0.4.0,
+  adding typed ephemeral presence and shipping the format and pacts in the npm
+  tarball; the remaining release step is publication.
 - Keep `FORMAT.md` and the test vectors aligned as the reference other
   languages can port.
 
