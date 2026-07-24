@@ -35,6 +35,12 @@ dependencies, holding the parser, the event stores, the computed views, the
 loom API, live sync, the `lync` command, and the sync relay. The format is the
 durable center. Everything else is a tool that reads and writes it.
 
+This checkout is version 0.4.0; npm currently serves 0.3.0 pending an
+owner-approved release. The format remains a v0 draft in both. Use a source
+checkout when following 0.4.0-only documentation, and check
+`npm view @deepfates/lync version` before assuming the published package has
+the same surface.
+
 ## The Format
 
 The normative specification is [FORMAT.md](./FORMAT.md). It is self-contained:
