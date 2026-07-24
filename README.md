@@ -39,7 +39,8 @@ This checkout is version 0.4.0; npm currently serves 0.3.0 pending an
 owner-approved release. The format remains a v0 draft in both. Use a source
 checkout when following 0.4.0-only documentation, and check
 `npm view @deepfates/lync version` before assuming the published package has
-the same surface.
+the same surface. See the [0.4 release candidate notes](./RELEASE.md) for the
+exact contract and runtime boundary.
 
 ## The Format
 
