@@ -35,6 +35,13 @@ dependencies, holding the parser, the event stores, the computed views, the
 loom API, live sync, the `lync` command, and the sync relay. The format is the
 durable center. Everything else is a tool that reads and writes it.
 
+The long horizon is broader than conversation logs. The same event set can
+carry text and media artifacts, derivations and deterministic compositions,
+model/program traces, judgments and optimizer lineages, resident lives, and
+world histories. These domains do not share one forced ontology: the envelope
+preserves causal references and integrity, while versioned pacts define typed
+relationships and applications choose projections appropriate to them.
+
 This checkout is version 0.4.0; npm currently serves 0.3.0 pending an
 owner-approved release. The format remains a v0 draft in both. Use a source
 checkout when following 0.4.0-only documentation, and check
