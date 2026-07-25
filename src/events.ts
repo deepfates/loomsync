@@ -381,6 +381,18 @@ function splitSplice(bytes: Uint8Array): { bodyBytes: Uint8Array; digest?: strin
   return { bodyBytes, digest: match[1], sig };
 }
 
+/**
+ * Recover the byte-exact event body named by a stored line's splice metadata.
+ * Returns undefined when a syntactically valid digest splice does not verify;
+ * such a damaged sighting must not adjudicate same-body union.
+ */
+export function verifiedLyncBodyBytes(bytesOrString: Uint8Array | string): Uint8Array | undefined {
+  const bytes = typeof bytesOrString === "string" ? textEncoder.encode(bytesOrString) : bytesOrString;
+  const spliced = splitSplice(bytes);
+  if (spliced.digest && sha256Hex(spliced.bodyBytes) !== spliced.digest.slice("sha256:".length)) return undefined;
+  return spliced.bodyBytes;
+}
+
 function latin1Decode(bytes: Uint8Array): string {
   let text = "";
   const chunkSize = 0x8000;
@@ -435,30 +447,30 @@ function validateEnvelope(value: unknown):
   | { ok: true; event: LyncEventBody; nonconforming: string[] }
   | { ok: false; reason: string } {
   if (!isRecord(value)) return { ok: false, reason: "top-level JSON value is not an object" };
-  if ("digest" in value || "sig" in value) return { ok: false, reason: "reserved top-level digest/sig body member" };
-  if (value.v !== 1) return { ok: false, reason: "unimplemented v" };
-  if (typeof value.id !== "string") return { ok: false, reason: "id must be string" };
-  if (typeof value.kind !== "string") return { ok: false, reason: "kind must be string" };
+  if (hasOwn(value, "digest") || hasOwn(value, "sig")) return { ok: false, reason: "reserved top-level digest/sig body member" };
+  if (!hasOwn(value, "v") || value.v !== 1) return { ok: false, reason: "unimplemented v" };
+  if (!hasOwn(value, "id") || typeof value.id !== "string") return { ok: false, reason: "id must be string" };
+  if (!hasOwn(value, "kind") || typeof value.kind !== "string") return { ok: false, reason: "kind must be string" };
   const slash = value.kind.indexOf("/");
   if (slash <= 0 || slash === value.kind.length - 1) return { ok: false, reason: "kind requires namespace/name slash" };
-  if (typeof value.at !== "string" || !isRfc3339(value.at)) return { ok: false, reason: "at fails RFC3339 ABNF" };
-  if ("marked" in value && (typeof value.marked !== "string" || !isRfc3339(value.marked))) {
+  if (!hasOwn(value, "at") || typeof value.at !== "string" || !isRfc3339(value.at)) return { ok: false, reason: "at fails RFC3339 ABNF" };
+  if (hasOwn(value, "marked") && (typeof value.marked !== "string" || !isRfc3339(value.marked))) {
     return { ok: false, reason: "marked fails RFC3339 ABNF" };
   }
-  if (!isRecord(value.author)) return { ok: false, reason: "author must be object" };
-  if (typeof value.author.actor !== "string" || value.author.actor.length === 0) {
+  if (!hasOwn(value, "author") || !isRecord(value.author)) return { ok: false, reason: "author must be object" };
+  if (!hasOwn(value.author, "actor") || typeof value.author.actor !== "string" || value.author.actor.length === 0) {
     return { ok: false, reason: "author.actor must be non-empty string" };
   }
   for (const field of ["operator", "via", "imported_by", "source"]) {
-    if (field in value.author && typeof value.author[field] !== "string") {
+    if (hasOwn(value.author, field) && typeof value.author[field] !== "string") {
       return { ok: false, reason: `author.${field} must be string` };
     }
   }
-  if (!Array.isArray(value.parents) || !value.parents.every((parent) => typeof parent === "string")) {
+  if (!hasOwn(value, "parents") || !Array.isArray(value.parents) || !value.parents.every((parent) => typeof parent === "string")) {
     return { ok: false, reason: "parents must be list of strings" };
   }
-  if (!isRecord(value.payload)) return { ok: false, reason: "payload must be object" };
-  if ("critical" in value && typeof value.critical !== "boolean") return { ok: false, reason: "critical must be bool" };
+  if (!hasOwn(value, "payload") || !isRecord(value.payload)) return { ok: false, reason: "payload must be object" };
+  if (hasOwn(value, "critical") && typeof value.critical !== "boolean") return { ok: false, reason: "critical must be bool" };
 
   const nonconforming: string[] = [];
   for (const key of Object.keys(value)) {
@@ -703,7 +715,17 @@ function parseJsonNoDuplicateKeys(text: string): JsonParsed {
       keys.add(key);
       skipWs();
       if (text[pos++] !== ":") throw new SyntaxError("expected colon");
-      obj[key] = parseValue();
+      // JSON's "__proto__" spelling is an ordinary data member. Assignment to
+      // an ordinary object would instead invoke Object.prototype's setter and
+      // let input replace the parsed object's prototype. Define the own data
+      // property explicitly to retain normal-object compatibility without
+      // granting JSON member names prototype semantics.
+      Object.defineProperty(obj, key, {
+        value: parseValue(),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
       skipWs();
       const ch = text[pos++];
       if (ch === "}") return obj;
@@ -791,6 +813,10 @@ function decodeUtf8(bytes: Uint8Array): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasOwn(value: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function errorMessage(error: unknown): string {

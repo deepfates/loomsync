@@ -369,11 +369,13 @@ serve` runs the relay and needs `ws` present (`npm install ws`); see below.
 The relay is deliberately dumb. Events are immutable and merge is union by
 id, so the protocol has no merge logic: five JSON frames (`sub`, `ev`,
 `live`, `presence`, `err`) that move canonical line bytes. The server never
-parses a line beyond extracting its id, stores each root as a plain `.lync`
-file you can read with any lync tool, and echoes accepted events to every
-subscriber — echoes are duplicate no-ops under union. `seq` is a per-root
-arrival counter used as a resume cursor (`<file>.sync.json`), so an offline
-client reconnects exactly where it left off.
+interprets an event envelope or payload: it extracts the id and applies only
+the byte-level digest-splice rule needed to compare same-id bodies. It stores
+each root as a plain `.lync` file plus a `.conflicts` sidecar and echoes
+accepted events to every subscriber — echoes are duplicate no-ops under
+union. `seq` is a per-root replay counter used as a resume cursor
+(`<file>.sync.json`), so an offline client reconnects exactly where it left
+off.
 
 Running a relay is the one thing that needs a WebSocket server, and Node does
 not ship one — so the relay acquires [`ws`](https://www.npmjs.com/package/ws)
@@ -424,11 +426,14 @@ your own `upgrade` listener. All three (`createLyncRelay`, `startLyncServe`,
 `attachLyncServer`) expose `status()` — a read-only snapshot of every live
 room's seq, subscriber count, and pending-unpersisted durability lag.
 
-Guarantees: same-id-different-bytes is never resolved — both variants are
-kept (a `.conflicts` sidecar) and both sides are told loudly. Persist failures
-are broadcast, never swallowed. A truncated final line after a crash is
-sealed and surfaced as damaged, never eaten. Presence frames are relayed,
-never stored. `--token T` (or `token` in the API) requires
+Guarantees: same id plus the same body bytes is one event even when stored
+digest/signature metadata differs. Same id plus different body bytes is never
+resolved — every retained variant is kept in a `.conflicts` sidecar, replayed
+to late clients, and surfaced loudly. Persist failures are broadcast, never
+swallowed. `close()` retries pending appends and rejects with the affected
+room/id if accepted bytes still cannot be made durable. A truncated final line
+after a crash is sealed and surfaced as damaged, never eaten. Presence frames
+are relayed, never stored. `--token T` (or `token` in the API) requires
 `Authorization: Bearer T` on every upgrade.
 
 The relay is a tool shipped beside the format, not part of it: FORMAT.md
@@ -457,3 +462,7 @@ sequence. After that, `node bin/lync.js --help` prints the CLI help.
 `scripts/fresh-clone-smoke.sh` verifies that sequence in a temporary clone
 and runs the CLI story path: init, append, view, concatenate, merge, and
 verify.
+
+Project-owned implementation work is tracked in `.tickets/`; run `tk list`
+from this repository to inspect it. Cross-project corpus coordination remains
+in the workshop root ledger.

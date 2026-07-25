@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
-import { mkdtemp } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createMemoryEventStore } from "@deepfates/lync/memory-log";
 import { createLyncLooms, loomRootId } from "@deepfates/lync/looms";
 import { createSyncedStore, createWebSocketTransport } from "@deepfates/lync/synced-store";
-import { createLyncRelay } from "../../src/relay/relay.js";
+import { decodeFrame, encodeFrame, type SyncFrame } from "../../src/sync-protocol.js";
+import { createLyncRelay, type LyncRelaySocket } from "../../src/relay/relay.js";
 
 /**
  * The relay mounted on an app's own HTTP server at a path — the embedding
@@ -21,6 +23,166 @@ async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 5_00
   }
   throw new Error("waitFor: condition not met within timeout");
 }
+
+class TestSocket implements LyncRelaySocket {
+  readyState = 1;
+  readonly OPEN = 1;
+  readonly sent: SyncFrame[] = [];
+  private readonly messageListeners: Array<(data: { toString(): string }) => void> = [];
+  private readonly closeListeners: Array<() => void> = [];
+  private readonly errorListeners: Array<(error: unknown) => void> = [];
+
+  send(data: string): void {
+    this.sent.push(decodeFrame(data));
+  }
+
+  ping(): void {}
+
+  terminate(): void {
+    if (this.readyState !== this.OPEN) return;
+    this.readyState = 3;
+    for (const listener of this.closeListeners) listener();
+  }
+
+  on(event: "message" | "close" | "error", listener: ((data: { toString(): string }) => void) | (() => void) | ((error: unknown) => void)): this {
+    if (event === "message") this.messageListeners.push(listener as (data: { toString(): string }) => void);
+    else if (event === "close") this.closeListeners.push(listener as () => void);
+    else this.errorListeners.push(listener as (error: unknown) => void);
+    return this;
+  }
+
+  receive(frame: SyncFrame): void {
+    const raw = encodeFrame(frame);
+    for (const listener of this.messageListeners) listener({ toString: () => raw });
+  }
+}
+
+function artifactLine(id: string, text = id): string {
+  return JSON.stringify({
+    v: 1,
+    id,
+    kind: "lync/artifact",
+    at: "2026-07-08T21:00:00Z",
+    author: { actor: "x" },
+    parents: [],
+    payload: { text },
+  });
+}
+
+function withDigest(body: string, sig?: string): string {
+  const digest = createHash("sha256").update(body).digest("hex");
+  return `${body.slice(0, -1)},"digest":"sha256:${digest}"${sig ? `,"sig":"${sig}"` : ""}}`;
+}
+
+describe("createLyncRelay union and recovery invariants", () => {
+  it("treats differing digest/signature metadata over identical body bytes as one event", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lync-relay-body-"));
+    const relay = createLyncRelay({ dir, log: () => {} });
+    const socket = new TestSocket();
+    relay.handleConnection(socket);
+    socket.receive({ t: "sub", root: "same-body", since: 0 });
+    await waitFor(() => socket.sent.some((frame) => frame.t === "live"));
+
+    const body = artifactLine("same", "same bytes");
+    socket.receive({ t: "ev", root: "same-body", line: body });
+    await waitFor(() => relay.status().find((room) => room.root === "same-body")?.seq === 1);
+    socket.receive({ t: "ev", root: "same-body", line: withDigest(body, "QUJDRA==") });
+    const tail = artifactLine("tail");
+    socket.receive({ t: "ev", root: "same-body", line: tail });
+    await waitFor(() => relay.status().find((room) => room.root === "same-body")?.seq === 2);
+
+    expect(relay.status().find((room) => room.root === "same-body")?.seq).toBe(2);
+    expect(socket.sent.filter((frame) => frame.t === "err" && frame.reason === "same-id-conflict")).toEqual([]);
+    await expect(readFile(path.join(dir, "same-body.conflicts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(path.join(dir, "same-body.lync"), "utf8")).toBe(`${body}\n${tail}\n`);
+    await relay.close();
+  });
+
+  it("replays persisted conflict variants to a client that arrives after restart", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lync-relay-conflict-replay-"));
+    const first = artifactLine("duel", "first");
+    const second = artifactLine("duel", "second");
+
+    const relay1 = createLyncRelay({ dir, log: () => {} });
+    const writer = new TestSocket();
+    relay1.handleConnection(writer);
+    writer.receive({ t: "sub", root: "duel", since: 0 });
+    await waitFor(() => writer.sent.some((frame) => frame.t === "live"));
+    writer.receive({ t: "ev", root: "duel", line: first });
+    writer.receive({ t: "ev", root: "duel", line: second });
+    await waitFor(() => writer.sent.some((frame) => frame.t === "err" && frame.reason === "same-id-conflict"));
+    await relay1.close();
+
+    const relay2 = createLyncRelay({ dir, log: () => {} });
+    const reader = new TestSocket();
+    relay2.handleConnection(reader);
+    reader.receive({ t: "sub", root: "duel", since: 0 });
+    await waitFor(() => reader.sent.some((frame) => frame.t === "live"));
+
+    expect(reader.sent.filter((frame): frame is Extract<SyncFrame, { t: "ev" }> => frame.t === "ev").map((frame) => frame.line)).toEqual([
+      first,
+      second,
+    ]);
+    await relay2.close();
+  });
+
+  it("seals and reports a truncated conflict sidecar without replaying it as an event", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lync-relay-conflict-tail-"));
+    const first = artifactLine("duel", "first");
+    const truncated = artifactLine("duel", "truncated").slice(0, -1);
+    await writeFile(path.join(dir, "duel.lync"), `${first}\n`);
+    await writeFile(path.join(dir, "duel.conflicts"), truncated);
+
+    const relay = createLyncRelay({ dir, log: () => {} });
+    const reader = new TestSocket();
+    relay.handleConnection(reader);
+    reader.receive({ t: "sub", root: "duel", since: 0 });
+    await waitFor(() => reader.sent.some((frame) => frame.t === "live"));
+
+    expect(reader.sent.some((frame) => frame.t === "err" && frame.reason === "recovered-damaged-tail" && frame.detail?.includes("conflict sidecar"))).toBe(true);
+    expect(reader.sent.filter((frame): frame is Extract<SyncFrame, { t: "ev" }> => frame.t === "ev").map((frame) => frame.line)).toEqual([first]);
+    expect(await readFile(path.join(dir, "duel.conflicts"), "utf8")).toBe(`${truncated}\n`);
+    await relay.close();
+  });
+
+  it("retries pending durable writes during close", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lync-relay-close-retry-"));
+    const relay = createLyncRelay({ dir, log: () => {} });
+    const socket = new TestSocket();
+    relay.handleConnection(socket);
+    socket.receive({ t: "sub", root: "closing", since: 0 });
+    await waitFor(() => socket.sent.some((frame) => frame.t === "live"));
+
+    await chmod(dir, 0o555);
+    const line = artifactLine("pending");
+    socket.receive({ t: "ev", root: "closing", line });
+    await waitFor(() => relay.status().find((room) => room.root === "closing")?.pendingUnpersisted === 1);
+    await chmod(dir, 0o755);
+
+    await relay.close();
+    expect(socket.readyState).not.toBe(socket.OPEN);
+    expect(await readFile(path.join(dir, "closing.lync"), "utf8")).toBe(`${line}\n`);
+  });
+
+  it("rejects close when accepted lines still cannot be made durable", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "lync-relay-close-fail-"));
+    const relay = createLyncRelay({ dir, log: () => {} });
+    const socket = new TestSocket();
+    relay.handleConnection(socket);
+    socket.receive({ t: "sub", root: "closing", since: 0 });
+    await waitFor(() => socket.sent.some((frame) => frame.t === "live"));
+
+    await chmod(dir, 0o555);
+    try {
+      socket.receive({ t: "ev", root: "closing", line: artifactLine("pending") });
+      await waitFor(() => relay.status().find((room) => room.root === "closing")?.pendingUnpersisted === 1);
+      await expect(relay.close()).rejects.toThrow(/closing:pending/);
+      expect(socket.readyState).not.toBe(socket.OPEN);
+    } finally {
+      await chmod(dir, 0o755);
+    }
+  });
+});
 
 describe("createLyncRelay mounted on an existing server", () => {
   let server: Server | undefined;
@@ -118,9 +280,9 @@ describe("createLyncRelay durability failures", () => {
       expect(errs.filter((r) => r === "persist-failed").length).toBeGreaterThanOrEqual(2);
     } finally {
       t.close();
+      await chmod(dir, 0o755);
       await relay.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      await chmod(dir, 0o755);
     }
   });
 });
