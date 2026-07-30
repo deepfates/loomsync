@@ -71,6 +71,11 @@
       "import": "./dist/views.js",
       "default": "./dist/views.js"
     },
+    "./presentation": {
+      "types": "./dist/presentation.d.ts",
+      "import": "./dist/presentation.js",
+      "default": "./dist/presentation.js"
+    },
     "./profiles/text-story": {
       "types": "./dist/profiles/text-story.d.ts",
       "import": "./dist/profiles/text-story.js",

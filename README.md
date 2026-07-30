@@ -157,6 +157,39 @@ never silently dropped. `exportCarriedLyncBytes(parsed)` re-emits the carried
 bytes. `LyncUnion` performs the same union incrementally and can buffer
 children until their first missing parent arrives.
 
+### Present known events without guessing
+
+`@deepfates/lync/presentation` is the browser-safe readable boundary for open
+Lync payloads. It dispatches exact kind and causally inherited profile
+contracts, preserves source identity and ordered parents, names the JSON paths
+used by every section, and distinguishes readable content from honest
+structure. A claimed-but-malformed kind/profile is explicitly unsupported; an
+unknown payload is never searched recursively for plausible prose.
+
+```ts
+import { presentLyncEvent } from "@deepfates/lync/presentation";
+
+const result = presentLyncEvent({
+  v: 1,
+  id: "event-1",
+  kind: "notes/text",
+  at: "2026-07-06T04:12:31Z",
+  author: { actor: "you" },
+  parents: [],
+  payload: { text: "Once..." },
+});
+if (result.status === "presented") {
+  console.log(result.presentation.kind, result.presentation.text);
+  console.log(result.presentation.source.id);
+}
+```
+
+Presentation is a non-mutating view, not an authorization or export engine.
+Callers apply critical suppression and application policy first and retain the
+original event bytes for source-preserving archives. The exact dispatch,
+privacy, profile inheritance, and consumer obligations are in
+[`pacts/presentation.md`](./pacts/presentation.md).
+
 ### Stores and looms
 
 Event stores share one contract over memory, file, and IndexedDB backends. The
@@ -313,6 +346,7 @@ so a heartbeat refreshes a peer without burning a new clock.
 - `@deepfates/lync/memory-log`, `@deepfates/lync/file-log`, `@deepfates/lync/idb-log` — stores
   (`file-log` is node-only; it keeps `node:fs` off the browser path)
 - `@deepfates/lync/views` — branch tree, transcript, memory, leaderboard
+- `@deepfates/lync/presentation` — exact kind/profile readable projection
 - `@deepfates/lync/looms` — the loom/turn API
 - `@deepfates/lync/references` — loom/turn/thread/index references and URLs
 - `@deepfates/lync/synced-store` — live sync decorator and WebSocket transport
