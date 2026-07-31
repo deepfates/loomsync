@@ -213,7 +213,10 @@ await loom.appendTurn(first.id, { text: "Then..." });
 
 The store API accepts raw lines through `union(line)` and structured event
 bodies through `append(event)`. It reports conflicts, pending parents, garbage,
-and accepted events without making file order meaningful.
+and accepted events without making file order meaningful. Loom snapshot import
+uses the optional `appendMany(events)` store capability to preserve causal order
+with one durable flush; IndexedDB writes only changed records and streams them
+sequentially within that transaction.
 
 ### Indexes
 

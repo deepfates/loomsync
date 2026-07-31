@@ -24,6 +24,11 @@ export class FileEventStore extends BaseEventStore {
     return super.append(ev);
   }
 
+  override async appendMany(events: Parameters<BaseEventStore["appendMany"]>[0]) {
+    await this.ready;
+    return super.appendMany(events);
+  }
+
   override async union(line: string) {
     await this.ready;
     return super.union(line);

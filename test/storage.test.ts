@@ -6,7 +6,7 @@ import { createLyncLooms } from "../src/looms.js";
 import { createFileEventStore } from "../src/file-log.js";
 import { createIndexedDbEventStore } from "../src/idb-log.js";
 import { createMemoryEventStore } from "../src/memory-log.js";
-import type { EventStore } from "../src/store.js";
+import { BaseEventStore, type EventStore } from "../src/store.js";
 
 type Payload = { text: string };
 type LoomMeta = { title: string };
@@ -44,6 +44,61 @@ describe("lync storage backends", () => {
     const written = await assertRoundTrip(createIndexedDbEventStore({ dbName: "test", indexedDB }));
     expect(await createIndexedDbEventStore({ dbName: "test", indexedDB }).exportRootBytes?.(written.rootId)).toEqual(written.bytes);
   });
+
+  it("persists sequential IndexedDB events incrementally", async () => {
+    const metrics: FakeMetrics = { puts: 0, clears: 0, deletes: 0, activePuts: 0, maxActivePuts: 0 };
+    const store = createIndexedDbEventStore({
+      dbName: "incremental",
+      indexedDB: createFakeIndexedDB(metrics),
+    });
+    let nextId = 0;
+    const looms = createLyncLooms<Payload, LoomMeta>({
+      store,
+      author: { actor: "tester" },
+      createId: () => `incremental-${++nextId}`,
+      now: () => 1000 + nextId,
+    });
+    const info = await looms.create({ title: "Incremental" });
+    const loom = await looms.open(info.id);
+    let parent: string | null = null;
+    for (let index = 0; index < 50; index += 1) {
+      parent = (await loom.appendTurn(parent, { text: String(index) })).id;
+    }
+
+    expect(metrics).toEqual({ puts: 51, clears: 0, deletes: 0, activePuts: 0, maxActivePuts: 1 });
+  });
+
+  it("persists an imported loom snapshot in one batch", async () => {
+    class CountingStore extends BaseEventStore {
+      flushes = 0;
+
+      protected override async persist() {
+        this.flushes += 1;
+      }
+    }
+
+    const store = new CountingStore();
+    let nextId = 0;
+    const looms = createLyncLooms<Payload, LoomMeta>({
+      store,
+      author: { actor: "tester" },
+      createId: () => `batch-${++nextId}`,
+      now: () => 1000,
+    });
+    await looms.import({
+      loom: { id: "source", meta: { title: "Batch" }, createdAt: 1000 },
+      turns: Array.from({ length: 100 }, (_, index) => ({
+        id: `source-${index}`,
+        loomId: "source",
+        parentId: index === 0 ? null : `source-${index - 1}`,
+        payload: { text: String(index) },
+        createdAt: 1001 + index,
+      })),
+    });
+
+    expect(store.flushes).toBe(1);
+    await expect(store.diagnostics()).resolves.toMatchObject({ events: 101 });
+  });
 });
 
 async function assertRoundTrip(store: EventStore) {
@@ -73,7 +128,17 @@ async function assertRoundTrip(store: EventStore) {
   return { rootId: info.id.slice("lync:".length), bytes: before };
 }
 
-function createFakeIndexedDB(): IDBFactory {
+interface FakeMetrics {
+  puts: number;
+  clears: number;
+  deletes: number;
+  activePuts: number;
+  maxActivePuts: number;
+}
+
+function createFakeIndexedDB(
+  metrics: FakeMetrics = { puts: 0, clears: 0, deletes: 0, activePuts: 0, maxActivePuts: 0 },
+): IDBFactory {
   const dbs = new Map<string, FakeDatabaseData>();
   return {
     open(name: string) {
@@ -82,7 +147,7 @@ function createFakeIndexedDB(): IDBFactory {
         let data = dbs.get(name);
         const firstOpen = !data;
         if (!data) {
-          data = { stores: new Map() };
+          data = { stores: new Map(), metrics };
           dbs.set(name, data);
         }
         request.result = new FakeDatabase(data) as unknown as IDBDatabase;
@@ -96,6 +161,7 @@ function createFakeIndexedDB(): IDBFactory {
 
 interface FakeDatabaseData {
   stores: Map<string, Map<string, unknown>>;
+  metrics: FakeMetrics;
 }
 
 class FakeOpenRequest {
@@ -122,7 +188,7 @@ class FakeDatabase {
 
   createObjectStore(name: string) {
     this.data.stores.set(name, new Map());
-    return new FakeObjectStore(this.data.stores.get(name)!);
+    return new FakeObjectStore(this.data.stores.get(name)!, this.data.metrics);
   }
 
   transaction(storeNames: string[]) {
@@ -149,12 +215,15 @@ class FakeTransaction {
   objectStore(name: string) {
     const store = this.data.stores.get(name);
     if (!store) throw new Error(`Missing fake store: ${name}`);
-    return new FakeObjectStore(store) as unknown as IDBObjectStore;
+    return new FakeObjectStore(store, this.data.metrics) as unknown as IDBObjectStore;
   }
 }
 
 class FakeObjectStore {
-  constructor(private readonly records: Map<string, unknown>) {}
+  constructor(
+    private readonly records: Map<string, unknown>,
+    private readonly metrics: FakeMetrics,
+  ) {}
 
   createIndex() {
     return {};
@@ -172,6 +241,7 @@ class FakeObjectStore {
   clear() {
     const request = new FakeRequest();
     queueMicrotask(() => {
+      this.metrics.clears += 1;
       this.records.clear();
       request.onsuccess?.({} as Event);
     });
@@ -180,8 +250,22 @@ class FakeObjectStore {
 
   put(record: { id?: string; key?: string[] }) {
     const request = new FakeRequest();
+    this.metrics.activePuts += 1;
+    this.metrics.maxActivePuts = Math.max(this.metrics.maxActivePuts, this.metrics.activePuts);
     queueMicrotask(() => {
+      this.metrics.puts += 1;
+      this.metrics.activePuts -= 1;
       this.records.set(record.id ?? JSON.stringify(record.key), record);
+      request.onsuccess?.({} as Event);
+    });
+    return request as unknown as IDBRequest;
+  }
+
+  delete(key: string | string[]) {
+    const request = new FakeRequest();
+    queueMicrotask(() => {
+      this.metrics.deletes += 1;
+      this.records.delete(typeof key === "string" ? key : JSON.stringify(key));
       request.onsuccess?.({} as Event);
     });
     return request as unknown as IDBRequest;

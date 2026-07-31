@@ -62,6 +62,23 @@ describe("createSyncedStore", () => {
     expect(subFrames.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("pushes a newly imported batch once and subscribes to its root", async () => {
+    const mock = mockTransport();
+    const store = createSyncedStore(createMemoryEventStore(), mock.transport);
+    const results = await store.appendMany!([
+      body("batch-root", [], "root"),
+      body("batch-child", ["batch-root"], "child"),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(results.map((result) => result.status)).toEqual(["added", "added"]);
+    const eventIds = mock.sent
+      .filter((frame) => frame.t === "ev")
+      .map((frame) => JSON.parse(frame.line).id);
+    expect(eventIds.sort()).toEqual(["batch-child", "batch-root"]);
+    expect(mock.sent.filter((frame) => frame.t === "sub" && frame.root === "batch-root")).toHaveLength(1);
+  });
+
   it("ingests a remote event reactively — a root subscriber fires — without echoing it back", async () => {
     const mock = mockTransport();
     const store = createSyncedStore(createMemoryEventStore(), mock.transport);
@@ -353,4 +370,3 @@ describe("generation change in the synced store (dee-u6tq)", () => {
     expect(store.status().failures).toEqual([]);
   });
 });
-

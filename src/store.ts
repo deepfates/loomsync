@@ -15,8 +15,12 @@ export type AppendResult =
   | { status: "conflict"; event: StoredEvent; conflictWith: StoredEvent }
   | { status: "garbage"; reason: string; bytes: string };
 
+export type EventBatch = Iterable<LyncEventBody> | AsyncIterable<LyncEventBody>;
+
 export interface EventStore {
   append(ev: LyncEventBody): Promise<AppendResult>;
+  /** Append one causally ordered group with at most one durable store flush. */
+  appendMany?(events: EventBatch): Promise<AppendResult[]>;
   union(line: string): Promise<AppendResult>;
   byId(id: string): Promise<StoredEvent | null>;
   byRoot(rootId: string): Promise<StoredEvent[]>;
@@ -65,9 +69,26 @@ export abstract class BaseEventStore implements EventStore {
   protected readonly pending = new Map<string, PendingRecord>();
   protected readonly garbage: GarbageRecord[] = [];
   private readonly listeners = new Map<string, Set<(ev: StoredEvent) => void>>();
+  private batchDepth = 0;
+  private batchDirty = false;
 
   async append(ev: LyncEventBody): Promise<AppendResult> {
     return this.ingest(serializeLyncEvent(ev), false);
+  }
+
+  async appendMany(events: EventBatch): Promise<AppendResult[]> {
+    this.batchDepth += 1;
+    try {
+      const results: AppendResult[] = [];
+      for await (const event of events) results.push(await this.ingest(serializeLyncEvent(event), false));
+      return results;
+    } finally {
+      this.batchDepth -= 1;
+      if (this.batchDepth === 0 && this.batchDirty) {
+        this.batchDirty = false;
+        await this.persist();
+      }
+    }
   }
 
   async union(line: string): Promise<AppendResult> {
@@ -155,12 +176,20 @@ export abstract class BaseEventStore implements EventStore {
 
   protected async persist(): Promise<void> {}
 
+  private async persistMutation(): Promise<void> {
+    if (this.batchDepth > 0) {
+      this.batchDirty = true;
+      return;
+    }
+    await this.persist();
+  }
+
   private async ingest(line: string, allowBuffer: boolean): Promise<AppendResult> {
     const parsed = parseStoredLine(line);
     if (!parsed.ok) {
       const result = { status: "garbage", reason: parsed.reason, bytes: line } as const;
       this.garbage.push({ reason: parsed.reason, bytes: line });
-      await this.persist();
+      await this.persistMutation();
       return result;
     }
 
@@ -169,7 +198,7 @@ export abstract class BaseEventStore implements EventStore {
     if (known !== null) {
       const result = { status: "garbage", reason: known, bytes: line } as const;
       this.garbage.push({ reason: known, bytes: line });
-      await this.persist();
+      await this.persistMutation();
       return result;
     }
 
@@ -182,12 +211,12 @@ export abstract class BaseEventStore implements EventStore {
       if (!allowBuffer) {
         const result = { status: "garbage", reason: `missing parent: ${parent}`, bytes: line } as const;
         this.garbage.push({ reason: result.reason, bytes: line });
-        await this.persist();
+        await this.persistMutation();
         return result;
       }
       const record = { missingParent: parent, digest: bodyDigest(parsed.bodyBytes), bytes: line };
       this.pending.set(pendingKey(record.missingParent, record.digest), record);
-      await this.persist();
+      await this.persistMutation();
       return { status: "buffered", missingParent: parent, bytes: line };
     }
 
@@ -197,7 +226,7 @@ export abstract class BaseEventStore implements EventStore {
       if (stripSplice(existing.bytes) === stripSplice(line)) {
         if (isRicherLine(line, existing.bytes)) {
           this.events.set(body.id, event);
-          await this.persist();
+          await this.persistMutation();
         }
         return { status: "duplicate", event: this.events.get(body.id)! };
       }
@@ -210,12 +239,12 @@ export abstract class BaseEventStore implements EventStore {
         bytes: existing.bytes,
       });
       this.conflicts.set(conflictKey(body.id, digest), { id: body.id, digest, root, bytes: line });
-      await this.persist();
+      await this.persistMutation();
       return { status: "conflict", event, conflictWith: existing };
     }
 
     this.events.set(body.id, event);
-    await this.persist();
+    await this.persistMutation();
     this.emit(event);
     await this.drain(body.id);
     return { status: "added", event };

@@ -113,27 +113,34 @@ export function createLyncLooms<
         { ...options.author, source: sourceBase },
         importMarked,
       );
-      await options.store.append(loomEvent);
       const newLoomId = `${LYNC_PREFIX}${loomEvent.id}`;
-      const idMap = new Map<TurnId, TurnId>();
       const ordered = topological(snapshot.turns);
-      const siblingOrdinal = new Map<TurnId | null, number>();
-      for (const turn of ordered) {
-        const parent = turn.parentId === null ? loomEvent.id : idMap.get(turn.parentId);
-        if (!parent) throw missingParent(turn.parentId ?? "");
-        const ordinalKey = turn.parentId;
-        const ordinal = siblingOrdinal.get(ordinalKey) ?? 0;
-        siblingOrdinal.set(ordinalKey, ordinal + 1);
-        const event = mint(
-          "lync/turn",
-          [parent],
-          omitUndefined({ payload: cloneJson(turn.payload), meta: cloneJson(turn.meta), ordinal }),
-          turn.createdAt,
-          { ...options.author, source: `${sourceBase}#${turn.id}` },
-          importMarked,
-        );
-        await options.store.append(event);
-        idMap.set(turn.id, event.id);
+      function* importedEvents() {
+        yield loomEvent;
+        const idMap = new Map<TurnId, TurnId>();
+        const siblingOrdinal = new Map<TurnId | null, number>();
+        for (const turn of ordered) {
+          const parent = turn.parentId === null ? loomEvent.id : idMap.get(turn.parentId);
+          if (!parent) throw missingParent(turn.parentId ?? "");
+          const ordinalKey = turn.parentId;
+          const ordinal = siblingOrdinal.get(ordinalKey) ?? 0;
+          siblingOrdinal.set(ordinalKey, ordinal + 1);
+          const event = mint(
+            "lync/turn",
+            [parent],
+            omitUndefined({ payload: cloneJson(turn.payload), meta: cloneJson(turn.meta), ordinal }),
+            turn.createdAt,
+            { ...options.author, source: `${sourceBase}#${turn.id}` },
+            importMarked,
+          );
+          yield event;
+          idMap.set(turn.id, event.id);
+        }
+      }
+      if (options.store.appendMany) {
+        await options.store.appendMany(importedEvents());
+      } else {
+        for (const event of importedEvents()) await options.store.append(event);
       }
       const fold = foldLoom<TPayload, TLoomMeta, TTurnMeta>(
         await options.store.byRoot(loomEvent.id),
