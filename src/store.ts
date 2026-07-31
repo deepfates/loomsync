@@ -35,6 +35,7 @@ export interface EventStoreDiagnostics {
   conflicts: number;
   pending: number;
   garbage: number;
+  pendingPersistence: boolean;
 }
 
 export interface StoreRecord {
@@ -70,13 +71,18 @@ export abstract class BaseEventStore implements EventStore {
   protected readonly garbage: GarbageRecord[] = [];
   private readonly listeners = new Map<string, Set<(ev: StoredEvent) => void>>();
   private batchDepth = 0;
-  private batchDirty = false;
+  private mutationVersion = 0;
+  private persistedVersion = 0;
+  private persistChain: Promise<void> = Promise.resolve();
+  private readonly pendingEmits: { version: number; event: StoredEvent }[] = [];
 
   async append(ev: LyncEventBody): Promise<AppendResult> {
+    await this.flushPendingPersistence();
     return this.ingest(serializeLyncEvent(ev), false);
   }
 
   async appendMany(events: EventBatch): Promise<AppendResult[]> {
+    await this.flushPendingPersistence();
     this.batchDepth += 1;
     try {
       const results: AppendResult[] = [];
@@ -84,14 +90,12 @@ export abstract class BaseEventStore implements EventStore {
       return results;
     } finally {
       this.batchDepth -= 1;
-      if (this.batchDepth === 0 && this.batchDirty) {
-        this.batchDirty = false;
-        await this.persist();
-      }
+      if (this.batchDepth === 0) await this.flushPendingPersistence();
     }
   }
 
   async union(line: string): Promise<AppendResult> {
+    await this.flushPendingPersistence();
     return this.ingest(line, true);
   }
 
@@ -132,6 +136,7 @@ export abstract class BaseEventStore implements EventStore {
       conflicts: this.conflicts.size,
       pending: this.pending.size,
       garbage: this.garbage.length,
+      pendingPersistence: this.persistedVersion < this.mutationVersion,
     };
   }
 
@@ -176,12 +181,41 @@ export abstract class BaseEventStore implements EventStore {
 
   protected async persist(): Promise<void> {}
 
-  private async persistMutation(): Promise<void> {
-    if (this.batchDepth > 0) {
-      this.batchDirty = true;
-      return;
+  private async persistMutation(emitAfterPersistence?: StoredEvent): Promise<void> {
+    this.mutationVersion += 1;
+    if (emitAfterPersistence) {
+      this.pendingEmits.push({ version: this.mutationVersion, event: emitAfterPersistence });
     }
-    await this.persist();
+    if (this.batchDepth === 0) await this.flushPendingPersistence();
+  }
+
+  /**
+   * Persistence failure leaves the in-memory mutation explicitly dirty. Every
+   * later public mutation first retries that exact state, so an identical
+   * event cannot become a clean duplicate while its bytes are still volatile.
+   * The chain also keeps overlapping callers from racing store snapshots.
+   */
+  private async flushPendingPersistence(): Promise<void> {
+    if (this.persistedVersion >= this.mutationVersion) return;
+    const attempt = this.persistChain.then(async () => {
+      while (this.persistedVersion < this.mutationVersion) {
+        const targetVersion = this.mutationVersion;
+        await this.persist();
+        this.persistedVersion = targetVersion;
+        this.emitPersistedThrough(targetVersion);
+      }
+    });
+    this.persistChain = attempt.catch(() => {});
+    await attempt;
+  }
+
+  private emitPersistedThrough(version: number): void {
+    let count = 0;
+    while (count < this.pendingEmits.length && this.pendingEmits[count]!.version <= version) {
+      this.emit(this.pendingEmits[count]!.event);
+      count += 1;
+    }
+    if (count > 0) this.pendingEmits.splice(0, count);
   }
 
   private async ingest(line: string, allowBuffer: boolean): Promise<AppendResult> {
@@ -244,8 +278,7 @@ export abstract class BaseEventStore implements EventStore {
     }
 
     this.events.set(body.id, event);
-    await this.persistMutation();
-    this.emit(event);
+    await this.persistMutation(event);
     await this.drain(body.id);
     return { status: "added", event };
   }

@@ -6,7 +6,8 @@ import { createLyncLooms } from "../src/looms.js";
 import { createFileEventStore } from "../src/file-log.js";
 import { createIndexedDbEventStore } from "../src/idb-log.js";
 import { createMemoryEventStore } from "../src/memory-log.js";
-import { BaseEventStore, type EventStore } from "../src/store.js";
+import { BaseEventStore, serializeLyncEvent, type EventStore } from "../src/store.js";
+import type { LyncEventBody } from "../src/events.js";
 
 type Payload = { text: string };
 type LoomMeta = { title: string };
@@ -99,7 +100,65 @@ describe("lync storage backends", () => {
     expect(store.flushes).toBe(1);
     await expect(store.diagnostics()).resolves.toMatchObject({ events: 101 });
   });
+
+  it("retries a dirty added event before treating identical bytes as a duplicate", async () => {
+    const store = new FailOnceStore();
+    const emitted: string[] = [];
+    store.subscribe("retry-root", (event) => emitted.push(event.body.id));
+    const event = storageEvent("retry-root");
+
+    await expect(store.union(serializeLyncEvent(event))).rejects.toThrow("injected persist failure");
+    await expect(store.diagnostics()).resolves.toMatchObject({
+      events: 1,
+      pendingPersistence: true,
+    });
+    expect(store.durableIds).toEqual([]);
+    expect(emitted).toEqual([]);
+
+    await expect(store.union(serializeLyncEvent(event))).resolves.toMatchObject({ status: "duplicate" });
+    await expect(store.diagnostics()).resolves.toMatchObject({ pendingPersistence: false });
+    expect(store.persistAttempts).toBe(2);
+    expect(store.durableIds).toEqual(["retry-root"]);
+    expect(emitted).toEqual(["retry-root"]);
+  });
+
+  it("retains dirty batch state after a failed flush", async () => {
+    const store = new FailOnceStore();
+    const event = storageEvent("batch-retry-root");
+
+    await expect(store.appendMany([event])).rejects.toThrow("injected persist failure");
+    await expect(store.diagnostics()).resolves.toMatchObject({ pendingPersistence: true });
+    expect(store.durableIds).toEqual([]);
+
+    await expect(store.appendMany([event])).resolves.toMatchObject([{ status: "duplicate" }]);
+    await expect(store.diagnostics()).resolves.toMatchObject({ pendingPersistence: false });
+    expect(store.persistAttempts).toBe(2);
+    expect(store.durableIds).toEqual(["batch-retry-root"]);
+  });
 });
+
+class FailOnceStore extends BaseEventStore {
+  persistAttempts = 0;
+  durableIds: string[] = [];
+
+  protected override async persist() {
+    this.persistAttempts += 1;
+    if (this.persistAttempts === 1) throw new Error("injected persist failure");
+    this.durableIds = this.dumpRecords().events.map((record) => record.id).sort();
+  }
+}
+
+function storageEvent(id: string, parents: string[] = []): LyncEventBody {
+  return {
+    v: 1,
+    id,
+    kind: "storage/probe",
+    at: "2026-07-31T00:00:00.000Z",
+    author: { actor: "storage-test" },
+    parents,
+    payload: {},
+  };
+}
 
 async function assertRoundTrip(store: EventStore) {
   let nextId = 0;

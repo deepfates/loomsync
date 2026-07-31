@@ -8,7 +8,13 @@ import {
   type SyncTransport,
 } from "@deepfates/lync/synced-store";
 import type { SyncFrame } from "@deepfates/lync/sync-protocol";
-import { serializeLyncEvent, type AppendResult, type EventStore, type StoredEvent } from "@deepfates/lync/store";
+import {
+  BaseEventStore,
+  serializeLyncEvent,
+  type AppendResult,
+  type EventStore,
+  type StoredEvent,
+} from "@deepfates/lync/store";
 
 function mockTransport(initial: SyncConnectionState = "online") {
   const frameHandlers = new Set<(frame: SyncFrame) => void>();
@@ -192,10 +198,58 @@ function breakableStore(inner: EventStore) {
   };
 }
 
+class FailFirstPersistStore extends BaseEventStore {
+  persistAttempts = 0;
+  durableIds: string[] = [];
+
+  protected override async persist() {
+    this.persistAttempts += 1;
+    if (this.persistAttempts === 1) throw new Error("injected first persist failure");
+    this.durableIds = this.dumpRecords().events.map((record) => record.id).sort();
+  }
+}
+
 const settle = () => new Promise((r) => setTimeout(r, 25));
 
 describe("awaited union (dee-s6dc): the receive cursor advances only on inspected success", () => {
   const line = (id: string, parents: string[], text: string) => serializeLyncEvent(body(id, parents, text));
+
+  it("replayed identical bytes heal a dirty inner store before the sync cursor advances", async () => {
+    const mock = mockTransport();
+    const inner = new FailFirstPersistStore();
+    const store = createSyncedStore(inner, mock.transport, {});
+    store.syncRoot("r1");
+    await settle();
+
+    mock.inject({ t: "ev", root: "r1", seq: 1, line: line("r1", [], "one") });
+    await settle();
+    expect(inner.durableIds).toEqual([]);
+    expect(store.status().failures.some((failure) => failure.includes("first persist failure"))).toBe(true);
+
+    mock.setState("offline");
+    mock.setState("online");
+    mock.open();
+    await settle();
+    expect(mock.sent.filter((frame) => frame.t === "sub" && frame.root === "r1").at(-1)).toMatchObject({
+      t: "sub",
+      since: 0,
+    });
+
+    mock.inject({ t: "ev", root: "r1", seq: 1, line: line("r1", [], "one") });
+    mock.inject({ t: "live", root: "r1", seq: 1 });
+    await settle();
+    expect(inner.persistAttempts).toBe(2);
+    expect(inner.durableIds).toEqual(["r1"]);
+
+    mock.setState("offline");
+    mock.setState("online");
+    mock.open();
+    await settle();
+    expect(mock.sent.filter((frame) => frame.t === "sub" && frame.root === "r1").at(-1)).toMatchObject({
+      t: "sub",
+      since: 1,
+    });
+  });
 
   it("a failed union on frame k freezes the cursor at k-1, surfaces the failure, and the event applies after heal + resubscribe", async () => {
     const statuses: SyncStatus[] = [];
