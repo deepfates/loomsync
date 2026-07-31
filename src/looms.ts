@@ -45,6 +45,7 @@ interface Fold<TPayload, TLoomMeta, TTurnMeta> {
   loom: LoomInfo<TLoomMeta>;
   turns: Map<TurnId, Turn<TPayload, TTurnMeta>>;
   children: Map<TurnId | null, TurnId[]>;
+  turnEvents: Map<TurnId, StoredEvent>;
 }
 
 export function createLyncLooms<
@@ -166,6 +167,7 @@ class LyncLoom<TPayload, TLoomMeta, TTurnMeta>
   private closed = false;
   private readonly listeners = new Set<LoomListener<TPayload, TLoomMeta, TTurnMeta>>();
   private readonly unsubscribe: () => void;
+  private cached?: { revision: number; fold: Fold<TPayload, TLoomMeta, TTurnMeta> };
 
   constructor(
     readonly id: LoomId,
@@ -178,15 +180,35 @@ class LyncLoom<TPayload, TLoomMeta, TTurnMeta>
       atMs?: number,
     ) => LyncEventBody,
   ) {
-    this.unsubscribe = store.subscribe(root, async (event) => {
+    this.unsubscribe = store.subscribe(root, (event) => {
       if (this.closed) return;
+      const revision = store.rootRevision?.(root);
+      let fold: Fold<TPayload, TLoomMeta, TTurnMeta> | undefined;
+      if (
+        this.cached &&
+        revision !== undefined &&
+        revision === this.cached.revision + 1 &&
+        event.body.kind === "lync/turn"
+      ) {
+        appendTurnEvent(this.cached.fold, event, this.id, this.root);
+        this.cached.revision = revision;
+        fold = this.cached.fold;
+      } else if (this.cached && revision !== undefined && event.body.kind !== "lync/loom-meta") {
+        // Kinds outside the Loom projection do not alter the derived fold, but
+        // they still advance the root revision.
+        if (revision === this.cached.revision + 1) this.cached.revision = revision;
+        else this.cached = undefined;
+      } else {
+        this.cached = undefined;
+      }
+
+      if (this.listeners.size === 0) return;
       if (event.body.kind === "lync/turn") {
-        const fold = await this.fold();
-        const turn = fold.turns.get(event.body.id);
-        if (turn) this.emit({ type: "turn-added", loomId: this.id, turn: cloneJson(turn) });
+        if (fold) this.notifyTurn(fold, event.body.id);
+        else void this.fold().then((next) => this.notifyTurn(next, event.body.id));
       }
       if (event.body.kind === "lync/loom-meta") {
-        this.emit({ type: "loom-updated", loom: await this.info() });
+        void this.info().then((loom) => this.emit({ type: "loom-updated", loom }));
       }
     });
   }
@@ -306,7 +328,12 @@ class LyncLoom<TPayload, TLoomMeta, TTurnMeta>
   }
 
   private async fold(): Promise<Fold<TPayload, TLoomMeta, TTurnMeta>> {
-    return foldLoom(await this.store.byRoot(this.root), this.id);
+    const before = this.store.rootRevision?.(this.root);
+    if (before !== undefined && this.cached?.revision === before) return this.cached.fold;
+    const fold = foldLoom<TPayload, TLoomMeta, TTurnMeta>(await this.store.byRoot(this.root), this.id);
+    const after = this.store.rootRevision?.(this.root);
+    if (before !== undefined && before === after) this.cached = { revision: before, fold };
+    return fold;
   }
 
   private assertOpen(): void {
@@ -315,6 +342,11 @@ class LyncLoom<TPayload, TLoomMeta, TTurnMeta>
 
   private emit(event: LoomEvent<TPayload, TLoomMeta, TTurnMeta>): void {
     for (const listener of this.listeners) listener(event);
+  }
+
+  private notifyTurn(fold: Fold<TPayload, TLoomMeta, TTurnMeta>, turnId: string): void {
+    const turn = fold.turns.get(turnId);
+    if (turn) this.emit({ type: "turn-added", loomId: this.id, turn: cloneJson(turn) });
   }
 }
 
@@ -332,25 +364,37 @@ function foldLoom<TPayload, TLoomMeta, TTurnMeta>(
   }
   const turns = new Map<TurnId, Turn<TPayload, TTurnMeta>>();
   const children = new Map<TurnId | null, TurnId[]>([[null, []]]);
+  const storedTurnEvents = new Map<TurnId, StoredEvent>();
   const turnEvents = events.filter((event) => event.body.kind === "lync/turn");
   for (const event of turnEvents.sort(compareTurnOrder)) {
-    const parentEventId = event.body.parents[0];
-    const parentId = parentEventId === root.body.id ? null : parentEventId;
-    const turn = omitUndefined({
-      id: event.body.id,
-      loomId,
-      parentId,
-      payload: cloneJson(event.body.payload.payload as TPayload),
-      meta: cloneJson(event.body.payload.meta as TTurnMeta),
-      createdAt: Date.parse(event.body.at),
-    });
-    turns.set(turn.id, turn);
-    children.set(turn.id, children.get(turn.id) ?? []);
-    const bucket = children.get(parentId) ?? [];
-    bucket.push(turn.id);
-    children.set(parentId, bucket);
+    appendTurnEvent({ loom, turns, children, turnEvents: storedTurnEvents }, event, loomId, root.body.id);
   }
-  return { loom, turns, children };
+  return { loom, turns, children, turnEvents: storedTurnEvents };
+}
+
+function appendTurnEvent<TPayload, TLoomMeta, TTurnMeta>(
+  fold: Fold<TPayload, TLoomMeta, TTurnMeta>,
+  event: StoredEvent,
+  loomId: LoomId,
+  root: string,
+): void {
+  const parentEventId = event.body.parents[0];
+  const parentId = parentEventId === root ? null : parentEventId;
+  const turn = omitUndefined({
+    id: event.body.id,
+    loomId,
+    parentId,
+    payload: cloneJson(event.body.payload.payload as TPayload),
+    meta: cloneJson(event.body.payload.meta as TTurnMeta),
+    createdAt: Date.parse(event.body.at),
+  });
+  fold.turns.set(turn.id, turn);
+  fold.turnEvents.set(turn.id, event);
+  fold.children.set(turn.id, fold.children.get(turn.id) ?? []);
+  const bucket = fold.children.get(parentId) ?? [];
+  bucket.push(turn.id);
+  bucket.sort((left, right) => compareTurnOrder(fold.turnEvents.get(left)!, fold.turnEvents.get(right)!));
+  fold.children.set(parentId, bucket);
 }
 
 function eventToLoomInfo<TMeta = unknown>(event: LyncEventBody): LoomInfo<TMeta> {

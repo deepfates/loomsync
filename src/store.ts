@@ -26,6 +26,8 @@ export interface EventStore {
   byRoot(rootId: string): Promise<StoredEvent[]>;
   subscribe(rootId: string, listener: (ev: StoredEvent) => void): () => void;
   roots(kind?: "lync/loom" | "lync/index"): Promise<StoredEvent[]>;
+  /** Monotonic in-memory revision for one root, when the backend can expose it. */
+  rootRevision?(rootId: string): number;
   exportRootBytes?(rootId: string): Promise<string>;
   diagnostics?(): Promise<EventStoreDiagnostics>;
 }
@@ -70,6 +72,7 @@ export abstract class BaseEventStore implements EventStore {
   protected readonly pending = new Map<string, PendingRecord>();
   protected readonly garbage: GarbageRecord[] = [];
   private readonly listeners = new Map<string, Set<(ev: StoredEvent) => void>>();
+  private readonly rootVersions = new Map<string, number>();
   private batchDepth = 0;
   private mutationVersion = 0;
   private persistedVersion = 0;
@@ -123,6 +126,10 @@ export abstract class BaseEventStore implements EventStore {
       .filter((event) => event.body.kind === "lync/loom" || event.body.kind === "lync/index")
       .filter((event) => kind === undefined || event.body.kind === kind)
       .sort(compareStored);
+  }
+
+  rootRevision(rootId: string): number {
+    return this.rootVersions.get(rootId) ?? 0;
   }
 
   async exportRootBytes(rootId: string): Promise<string> {
@@ -272,6 +279,7 @@ export abstract class BaseEventStore implements EventStore {
       if (stripSplice(existing.bytes) === stripSplice(line)) {
         if (isRicherLine(line, existing.bytes)) {
           this.events.set(body.id, event);
+          this.bumpRoot(root);
           await this.persistMutation();
         }
         return { status: "duplicate", event: this.events.get(body.id)! };
@@ -285,11 +293,13 @@ export abstract class BaseEventStore implements EventStore {
         bytes: existing.bytes,
       });
       this.conflicts.set(conflictKey(body.id, digest), { id: body.id, digest, root, bytes: line });
+      this.bumpRoot(root);
       await this.persistMutation();
       return { status: "conflict", event, conflictWith: existing };
     }
 
     this.events.set(body.id, event);
+    this.bumpRoot(root);
     await this.persistMutation(event);
     await this.drain(body.id);
     return { status: "added", event };
@@ -309,6 +319,10 @@ export abstract class BaseEventStore implements EventStore {
 
   private emit(event: StoredEvent): void {
     for (const listener of this.listeners.get(event.root) ?? []) listener(event);
+  }
+
+  private bumpRoot(rootId: string): void {
+    this.rootVersions.set(rootId, (this.rootVersions.get(rootId) ?? 0) + 1);
   }
 
   private isConflicted(id: string): boolean {

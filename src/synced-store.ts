@@ -302,6 +302,7 @@ export function createSyncedStore(
       return inner.subscribe(rootId, listener);
     },
     roots: (kind) => inner.roots(kind),
+    ...(inner.rootRevision ? { rootRevision: (rootId: string) => inner.rootRevision!(rootId) } : {}),
     ...(inner.exportRootBytes ? { exportRootBytes: (rootId: string) => inner.exportRootBytes!(rootId) } : {}),
     ...(inner.diagnostics ? { diagnostics: () => inner.diagnostics!() } : {}),
     syncRoot: ensureSynced,

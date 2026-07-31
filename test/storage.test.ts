@@ -270,6 +270,55 @@ describe("lync storage backends", () => {
     expect(store.persistAttempts).toBe(2);
     expect(store.durableIds).toEqual(["batch-retry-root"]);
   });
+
+  it("keeps sequential Loom append derivation bounded while notifying exactly once", async () => {
+    const store = new CountingRootStore();
+    let nextId = 0;
+    const looms = createLyncLooms<{ text: string }, LoomMeta>({
+      store,
+      author: { actor: "fold-test" },
+      createId: () => `fold-${++nextId}`,
+      now: () => 1000 + nextId,
+    });
+    const info = await looms.create({ title: "Long" });
+    const loom = await looms.open(info.id);
+    const notified: string[] = [];
+    loom.subscribe((event) => {
+      if (event.type === "turn-added") notified.push(event.turn.id);
+    });
+
+    let parent: string | null = null;
+    for (let index = 0; index < 200; index += 1) {
+      parent = (await loom.appendTurn(parent, { text: `${index}:${"x".repeat(4096)}` })).id;
+    }
+    expect(store.byRootReads).toBe(1);
+    expect(notified).toHaveLength(200);
+    await expect(loom.threadTo(parent!)).resolves.toHaveLength(200);
+    expect(store.byRootReads).toBe(1);
+  });
+
+  it("invalidates the incremental Loom fold when an unseen conflict changes a root", async () => {
+    const store = new CountingRootStore();
+    let nextId = 0;
+    const looms = createLyncLooms<{ text: string }, LoomMeta>({
+      store,
+      author: { actor: "conflict-test" },
+      createId: () => `conflict-${++nextId}`,
+      now: () => 1000 + nextId,
+    });
+    const info = await looms.create({ title: "Conflict" });
+    const loom = await looms.open(info.id);
+    const turn = await loom.appendTurn(null, { text: "first" });
+    expect(store.byRootReads).toBe(1);
+
+    const lines = (await store.exportRootBytes(info.id.slice("lync:".length))).trimEnd().split("\n");
+    const readsBeforeConflict = store.byRootReads;
+    const original = JSON.parse(lines.find((line) => JSON.parse(line).id === turn.id)!);
+    original.payload.payload = { text: "variant" };
+    await expect(store.union(serializeLyncEvent(original))).resolves.toMatchObject({ status: "conflict" });
+    await expect(loom.getTurn(turn.id)).resolves.toBeNull();
+    expect(store.byRootReads).toBe(readsBeforeConflict + 1);
+  });
 });
 
 class FailOnceStore extends BaseEventStore {
@@ -280,6 +329,15 @@ class FailOnceStore extends BaseEventStore {
     this.persistAttempts += 1;
     if (this.persistAttempts === 1) throw new Error("injected persist failure");
     this.durableIds = this.dumpRecords().events.map((record) => record.id).sort();
+  }
+}
+
+class CountingRootStore extends BaseEventStore {
+  byRootReads = 0;
+
+  override async byRoot(rootId: string) {
+    this.byRootReads += 1;
+    return super.byRoot(rootId);
   }
 }
 
