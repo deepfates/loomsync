@@ -8,6 +8,7 @@ import { createIndexedDbEventStore } from "../src/idb-log.js";
 import { createMemoryEventStore } from "../src/memory-log.js";
 import { BaseEventStore, serializeLyncEvent, type EventStore } from "../src/store.js";
 import type { LyncEventBody } from "../src/events.js";
+import { sha256Hex } from "../src/sha256.js";
 
 type Payload = { text: string };
 type LoomMeta = { title: string };
@@ -38,6 +39,140 @@ describe("lync storage backends", () => {
     await expect(store.byId("new-root")).resolves.toMatchObject({ body: { id: "new-root" } });
     await expect(store.byId("other-root")).resolves.toBeNull();
     await expect(store.diagnostics()).resolves.toMatchObject({ events: 1 });
+  });
+
+  it("reconciles newer canonical lines instead of letting a valid legacy snapshot shadow them", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-reconcile-"));
+    const root = storageEvent("canonical-root");
+    const child = storageEvent("canonical-child", [root.id]);
+    const grandchild = storageEvent("canonical-grandchild", [child.id]);
+    const rootLine = serializeLyncEvent(root);
+    const childLine = serializeLyncEvent(child);
+    const canonicalFile = path.join(dir, `${encodeURIComponent(root.id)}.lync`);
+    await fs.writeFile(canonicalFile, `${rootLine}\n${childLine}\n`);
+    await fs.writeFile(
+      path.join(dir, "events.json"),
+      JSON.stringify({
+        events: [{ id: root.id, root: "forged-root", kind: root.kind, at: root.at, bytes: rootLine }],
+        conflicts: [],
+        pending: [],
+        garbage: [],
+      }),
+    );
+
+    const reopened = createFileEventStore(dir);
+    await expect(reopened.byId(child.id)).resolves.toMatchObject({ body: { id: child.id } });
+    await expect(reopened.union(serializeLyncEvent(grandchild))).resolves.toMatchObject({ status: "added" });
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(
+      `${rootLine}\n${childLine}\n${serializeLyncEvent(grandchild)}\n`,
+    );
+  });
+
+  it("recovers either side of a snapshot/canonical persistence interruption", async () => {
+    const snapshotOnlyDir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-snapshot-only-"));
+    const root = storageEvent("snapshot-root");
+    const rootLine = serializeLyncEvent(root);
+    await fs.writeFile(
+      path.join(snapshotOnlyDir, "events.json"),
+      JSON.stringify({
+        events: [{ id: root.id, root: "forged-root", kind: root.kind, at: root.at, bytes: rootLine }],
+        conflicts: [],
+        pending: [],
+        garbage: [],
+      }),
+    );
+    const fromSnapshot = createFileEventStore(snapshotOnlyDir);
+    await expect(fromSnapshot.byId(root.id)).resolves.toMatchObject({ body: { id: root.id } });
+    await expect(
+      fs.readFile(path.join(snapshotOnlyDir, `${encodeURIComponent(root.id)}.lync`), "utf8"),
+    ).resolves.toBe(`${rootLine}\n`);
+    await expect(fs.stat(path.join(snapshotOnlyDir, "forged-root.lync"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    const canonicalOnlyDir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-canonical-only-"));
+    await fs.writeFile(path.join(canonicalOnlyDir, `${encodeURIComponent(root.id)}.lync`), `${rootLine}\n`);
+    await fs.writeFile(path.join(canonicalOnlyDir, "events.json"), '{"events":');
+    const fromCanonical = createFileEventStore(canonicalOnlyDir);
+    await expect(fromCanonical.byId(root.id)).resolves.toMatchObject({ body: { id: root.id } });
+    expect((await fs.readdir(canonicalOnlyDir)).some((file) => file.startsWith("events.invalid-"))).toBe(true);
+  });
+
+  it("rebuilds conflicts, pending lines, and garbage without an events snapshot", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-rebuild-"));
+    const store = createFileEventStore(dir);
+    const root = storageEvent("rebuild-root");
+    const child = { ...storageEvent("rebuild-child", [root.id]), payload: { version: 1 } };
+    const variant = { ...child, payload: { version: 2 } };
+    const pending = storageEvent("waiting-child", ["missing-parent"]);
+    const childLine = serializeLyncEvent(child);
+    const variantLine = serializeLyncEvent(variant);
+    await store.append(root);
+    await store.append(child);
+    await expect(store.union(variantLine)).resolves.toMatchObject({ status: "conflict" });
+    await expect(store.union(serializeLyncEvent(pending))).resolves.toMatchObject({ status: "buffered" });
+    await expect(store.union("not json")).resolves.toMatchObject({ status: "garbage" });
+
+    const canonical = await fs.readFile(path.join(dir, `${encodeURIComponent(root.id)}.lync`), "utf8");
+    const conflicts = await fs.readFile(path.join(dir, `${encodeURIComponent(root.id)}.conflicts`), "utf8");
+    expect(canonical).toContain(`${childLine}\n`);
+    expect(conflicts).toContain(`${childLine}\n`);
+    expect(conflicts).toContain(`${variantLine}\n`);
+    await expect(fs.stat(path.join(dir, "events.json"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    const reopened = createFileEventStore(dir);
+    await expect(reopened.diagnostics()).resolves.toMatchObject({
+      events: 2,
+      conflicts: 2,
+      pending: 1,
+      garbage: 1,
+      pendingPersistence: false,
+    });
+  });
+
+  it("seals a truncated canonical tail before a later append", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-tail-"));
+    const root = storageEvent("tail-root");
+    const child = storageEvent("tail-child", [root.id]);
+    const canonicalFile = path.join(dir, `${encodeURIComponent(root.id)}.lync`);
+    await fs.writeFile(canonicalFile, `${serializeLyncEvent(root)}\n{\"v\":1`);
+
+    const reopened = createFileEventStore(dir);
+    await expect(reopened.diagnostics()).resolves.toMatchObject({ events: 1, garbage: 1 });
+    await reopened.append(child);
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(
+      `${serializeLyncEvent(root)}\n{\"v\":1\n${serializeLyncEvent(child)}\n`,
+    );
+  });
+
+  it("accepts but permanently surfaces a complete final event that lacked LF", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-no-lf-"));
+    const root = storageEvent("no-lf-root");
+    const line = serializeLyncEvent(root);
+    const canonicalFile = path.join(dir, `${encodeURIComponent(root.id)}.lync`);
+    await fs.writeFile(canonicalFile, line);
+
+    const recovered = createFileEventStore(dir);
+    await expect(recovered.byId(root.id)).resolves.toMatchObject({ body: { id: root.id } });
+    await expect(recovered.diagnostics()).resolves.toMatchObject({ events: 1, garbage: 1 });
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(`${line}\n`);
+
+    const reopened = createFileEventStore(dir);
+    await expect(reopened.diagnostics()).resolves.toMatchObject({ events: 1, garbage: 1 });
+  });
+
+  it("appends a richer exact-body sighting without overwriting its earlier physical line", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-richer-"));
+    const root = storageEvent("richer-root");
+    const plain = serializeLyncEvent(root);
+    const digest = sha256Hex(new TextEncoder().encode(plain));
+    const richer = plain.replace(/}$/, `,"digest":"sha256:${digest}"}`);
+    const store = createFileEventStore(dir);
+    await store.union(plain);
+    await expect(store.union(richer)).resolves.toMatchObject({ status: "duplicate" });
+
+    const canonicalFile = path.join(dir, `${encodeURIComponent(root.id)}.lync`);
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(`${plain}\n${richer}\n`);
+    const reopened = createFileEventStore(dir);
+    await expect(reopened.exportRootBytes(root.id)).resolves.toBe(`${richer}\n`);
   });
 
   it("round-trips byte-identical events through the IndexedDB-shaped store", async () => {

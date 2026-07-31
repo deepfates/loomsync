@@ -22,3 +22,7 @@ Appending one causally valid child does not rewrite or copy already-held canonic
 **2026-07-31T21:51:32Z**
 
 2026-07-31 independent stress measurements: OxfordMoss 760-event life ordinary append rewrote approximately 85.2 MB in 265 ms; cold open reached approximately 790 MB RSS in 1.49 s. Snapshot-free recovery currently persists after every super.union line: calculated cumulative root rewrites 14.05 GiB Moss / 13.08 GiB Iris, about 30.19/28.08 GiB including JSON. A 100-line 5.07 MB disposable recovery took 754 ms. Positive boundary: parseLyncFiles plus exportCarried over episode 000029's 75,012,413-byte union preserved 1,452 events and exact bytes in 2.59 s at 482 MB peak, so no separate parser-correctness ticket was filed.
+
+**2026-07-31T22:32:50Z**
+
+The FileEventStore half is now implemented under lyn-qoba: future writes append+fsync only missing canonical lines; no events.json rewrite; snapshot-free recovery hydrates without persistence; legacy snapshots migrate once. Disposable Iris append fell from 633 ms / roughly 81 MB rewritten to 407 ms / 266 bytes appended. Remaining d9hp work is Loom/store read indexing and removal of repeated full-root folds, plus hardware-independent long-root regression.

@@ -1,6 +1,6 @@
 ---
 id: lyn-qoba
-status: open
+status: closed
 deps: [lyn-l6i9]
 links: [lyn-d9hp, lyn-l6i9]
 created: 2026-07-31T21:50:52Z
@@ -22,3 +22,7 @@ On restart, valid canonical .lync additions, conflict variants, pending parents,
 **2026-07-31T21:51:32Z**
 
 2026-07-31 independent stress reproduction on main 43d563e: externalPresentOnDiskBefore=true, externalVisibleAfterReopen=false, externalPresentAfterOrdinaryAppend=false. Relevant implementation: src/file-log.ts load/persist/writeLyncFiles and src/store.ts dump/load. Behold only recovers syntactically invalid events.json; a parseable divergent snapshot remains trusted.
+
+**2026-07-31T22:32:50Z**
+
+Implemented canonical-directory recovery and migration. FileEventStore loads accepted .lync, .conflicts, pending.events, and garbage.json first; treats legacy events.json index fields as untrusted; re-unions only exact raw bytes; fsyncs snapshot-only bytes into canonical journals; then preserves the snapshot as events.legacy-*.json. Invalid snapshots fall back only when canonical sources exist and are preserved as events.invalid-*.json. Missing-LF tails are sealed with a retained diagnostic; conflicts, unresolved bytes, garbage, and richer exact-body sightings rebuild without a snapshot. Interruption-state and exact-byte regressions pass. On a disposable Iris copy, migration left the 37,959,035-byte canonical file hash unchanged, archived events.json, appended only 266 bytes for one new turn, and recovered it on reopen.

@@ -159,6 +159,18 @@ export abstract class BaseEventStore implements EventStore {
     this.garbage.push(...(records.garbage ?? []));
   }
 
+  /** Hydrate already-durable union lines without re-persisting or notifying. */
+  protected async loadLines(lines: Iterable<string>): Promise<void> {
+    this.batchDepth += 1;
+    try {
+      for (const line of lines) await this.ingest(line, true);
+    } finally {
+      this.batchDepth -= 1;
+      this.persistedVersion = this.mutationVersion;
+      this.pendingEmits.length = 0;
+    }
+  }
+
   protected dumpRecords(): {
     events: StoreRecord[];
     conflicts: ConflictRecord[];

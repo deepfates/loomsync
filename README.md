@@ -219,6 +219,14 @@ uses the optional `appendMany(events)` store capability to preserve causal order
 with one durable flush; IndexedDB writes only changed records and streams them
 sequentially within that transaction.
 
+The Node file store keeps accepted lines in append-only `<root>.lync` files,
+same-id variants in `<root>.conflicts`, unresolved lines in `pending.events`,
+and exact garbage records in `garbage.json`. Older `events.json` snapshots are
+untrusted replicas: one open re-unions their raw bytes with the canonical
+directory, durably heals any unique bytes, and preserves the snapshot as an
+ignored `events.legacy-*.json` artifact. Snapshot index fields never override
+the event bytes themselves.
+
 ### Indexes
 
 An index tracks a collection of looms — upsert entries, subscribe to changes:
