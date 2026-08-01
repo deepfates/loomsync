@@ -1,6 +1,6 @@
 {
   "name": "@deepfates/lync",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "The lync format: append-only JSONL event logs merged by set union. Parsing, stores, views, looms, live sync, loom client, indexes, the sync relay, and the lync command. Zero dependencies.",
   "type": "module",
   "license": "MIT",
@@ -165,8 +165,10 @@
     "test": "vitest run",
     "typecheck": "pnpm build && tsc -p tsconfig.json --noEmit",
     "guard:paths": "bash scripts/no-machine-local-paths.sh",
-    "verify": "pnpm guard:paths && pnpm test && pnpm typecheck && pnpm check:examples",
+    "verify": "pnpm guard:paths && pnpm test && pnpm typecheck && pnpm check:examples && pnpm check:package",
     "check:examples": "node scripts/check-readme-examples.mjs",
+    "check:package": "node scripts/check-packed-artifact.mjs",
+    "prepack": "pnpm build",
     "prepublishOnly": "tsc -p tsconfig.json"
   },
   "devDependencies": {
