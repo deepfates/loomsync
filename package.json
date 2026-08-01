@@ -41,6 +41,11 @@
       "import": "./dist/events.js",
       "default": "./dist/events.js"
     },
+    "./indexed-union": {
+      "types": "./dist/indexed-union.d.ts",
+      "import": "./dist/indexed-union.js",
+      "default": "./dist/indexed-union.js"
+    },
     "./file-log": {
       "types": "./dist/file-log.d.ts",
       "import": "./dist/file-log.js",

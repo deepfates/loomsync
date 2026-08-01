@@ -1,8 +1,6 @@
 // SHA-256 in pure TypeScript: synchronous, dependency-free, and byte-for-byte
-// identical in Node and the browser. Lync hashing runs on the same code path
-// everywhere, so this file never reaches for node:crypto and the browser
-// bundle stays free of node builtins. WebCrypto's subtle.digest is async and
-// cannot back the synchronous line parser, which is why we implement it here.
+// identical in Node and the browser. The incremental form lets large streaming
+// sources authenticate without a corpus-sized padding copy.
 
 const K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -15,52 +13,93 @@ const K = new Uint32Array([
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 ]);
 
-export function sha256Hex(bytes: Uint8Array): string {
-  let h0 = 0x6a09e667;
-  let h1 = 0xbb67ae85;
-  let h2 = 0x3c6ef372;
-  let h3 = 0xa54ff53a;
-  let h4 = 0x510e527f;
-  let h5 = 0x9b05688c;
-  let h6 = 0x1f83d9ab;
-  let h7 = 0x5be0cd19;
+export class Sha256 {
+  private readonly state = new Uint32Array([
+    0x6a09e667,
+    0xbb67ae85,
+    0x3c6ef372,
+    0xa54ff53a,
+    0x510e527f,
+    0x9b05688c,
+    0x1f83d9ab,
+    0x5be0cd19,
+  ]);
+  private readonly buffer = new Uint8Array(64);
+  private readonly words = new Uint32Array(64);
+  private buffered = 0;
+  private bytesHashed = 0;
+  private finished = false;
 
-  const bitLen = bytes.length * 8;
-  const withOne = bytes.length + 1;
-  const total = withOne + ((56 - (withOne % 64) + 64) % 64) + 8;
-  const msg = new Uint8Array(total);
-  msg.set(bytes);
-  msg[bytes.length] = 0x80;
-
-  const view = new DataView(msg.buffer);
-  view.setUint32(total - 8, Math.floor(bitLen / 0x100000000));
-  view.setUint32(total - 4, bitLen >>> 0);
-
-  const w = new Uint32Array(64);
-  for (let off = 0; off < total; off += 64) {
-    for (let i = 0; i < 16; i++) w[i] = view.getUint32(off + i * 4);
-    for (let i = 16; i < 64; i++) {
-      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
-      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
-      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+  update(bytes: Uint8Array): this {
+    if (this.finished) throw new Error("SHA-256 digest is already finalized");
+    if (!(bytes instanceof Uint8Array)) throw new Error("SHA-256 update requires bytes");
+    if (this.bytesHashed + bytes.byteLength > Number.MAX_SAFE_INTEGER) {
+      throw new Error("SHA-256 input exceeds the safe JavaScript byte count");
     }
+    this.bytesHashed += bytes.byteLength;
+    let offset = 0;
+    if (this.buffered > 0) {
+      const take = Math.min(64 - this.buffered, bytes.byteLength);
+      this.buffer.set(bytes.subarray(0, take), this.buffered);
+      this.buffered += take;
+      offset += take;
+      if (this.buffered === 64) {
+        this.compress(this.buffer, 0);
+        this.buffered = 0;
+      }
+    }
+    while (offset + 64 <= bytes.byteLength) {
+      this.compress(bytes, offset);
+      offset += 64;
+    }
+    if (offset < bytes.byteLength) {
+      this.buffer.set(bytes.subarray(offset), 0);
+      this.buffered = bytes.byteLength - offset;
+    }
+    return this;
+  }
 
-    let a = h0;
-    let b = h1;
-    let c = h2;
-    let d = h3;
-    let e = h4;
-    let f = h5;
-    let g = h6;
-    let h = h7;
+  digestHex(): string {
+    if (this.finished) throw new Error("SHA-256 digest is already finalized");
+    this.finished = true;
+    this.buffer[this.buffered] = 0x80;
+    this.buffer.fill(0, this.buffered + 1);
+    if (this.buffered >= 56) {
+      this.compress(this.buffer, 0);
+      this.buffer.fill(0);
+    }
+    const bitLength = this.bytesHashed * 8;
+    const view = new DataView(this.buffer.buffer, this.buffer.byteOffset, this.buffer.byteLength);
+    view.setUint32(56, Math.floor(bitLength / 0x100000000));
+    view.setUint32(60, bitLength >>> 0);
+    this.compress(this.buffer, 0);
+    return [...this.state].map(toHex8).join("");
+  }
 
-    for (let i = 0; i < 64; i++) {
+  private compress(bytes: Uint8Array, offset: number) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 64);
+    const w = this.words;
+    for (let index = 0; index < 16; index += 1) w[index] = view.getUint32(index * 4);
+    for (let index = 16; index < 64; index += 1) {
+      const s0 = rotr(w[index - 15]!, 7) ^ rotr(w[index - 15]!, 18) ^ (w[index - 15]! >>> 3);
+      const s1 = rotr(w[index - 2]!, 17) ^ rotr(w[index - 2]!, 19) ^ (w[index - 2]! >>> 10);
+      w[index] = (w[index - 16]! + s0 + w[index - 7]! + s1) | 0;
+    }
+    let a = this.state[0]!;
+    let b = this.state[1]!;
+    let c = this.state[2]!;
+    let d = this.state[3]!;
+    let e = this.state[4]!;
+    let f = this.state[5]!;
+    let g = this.state[6]!;
+    let h = this.state[7]!;
+    for (let index = 0; index < 64; index += 1) {
       const s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
-      const ch = (e & f) ^ (~e & g);
-      const t1 = (h + s1 + ch + K[i] + w[i]) | 0;
+      const choice = (e & f) ^ (~e & g);
+      const t1 = (h + s1 + choice + K[index]! + w[index]!) | 0;
       const s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
-      const maj = (a & b) ^ (a & c) ^ (b & c);
-      const t2 = (s0 + maj) | 0;
+      const majority = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (s0 + majority) | 0;
       h = g;
       g = f;
       f = e;
@@ -70,24 +109,25 @@ export function sha256Hex(bytes: Uint8Array): string {
       b = a;
       a = (t1 + t2) | 0;
     }
-
-    h0 = (h0 + a) | 0;
-    h1 = (h1 + b) | 0;
-    h2 = (h2 + c) | 0;
-    h3 = (h3 + d) | 0;
-    h4 = (h4 + e) | 0;
-    h5 = (h5 + f) | 0;
-    h6 = (h6 + g) | 0;
-    h7 = (h7 + h) | 0;
+    this.state[0] = (this.state[0]! + a) | 0;
+    this.state[1] = (this.state[1]! + b) | 0;
+    this.state[2] = (this.state[2]! + c) | 0;
+    this.state[3] = (this.state[3]! + d) | 0;
+    this.state[4] = (this.state[4]! + e) | 0;
+    this.state[5] = (this.state[5]! + f) | 0;
+    this.state[6] = (this.state[6]! + g) | 0;
+    this.state[7] = (this.state[7]! + h) | 0;
   }
-
-  return toHex8(h0) + toHex8(h1) + toHex8(h2) + toHex8(h3) + toHex8(h4) + toHex8(h5) + toHex8(h6) + toHex8(h7);
 }
 
-function rotr(x: number, n: number): number {
-  return (x >>> n) | (x << (32 - n));
+export function sha256Hex(bytes: Uint8Array): string {
+  return new Sha256().update(bytes).digestHex();
 }
 
-function toHex8(x: number): string {
-  return (x >>> 0).toString(16).padStart(8, "0");
+function rotr(value: number, bits: number) {
+  return (value >>> bits) | (value << (32 - bits));
+}
+
+function toHex8(value: number) {
+  return (value >>> 0).toString(16).padStart(8, "0");
 }

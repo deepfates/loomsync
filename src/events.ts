@@ -86,6 +86,14 @@ interface JsonParsed {
   value: unknown;
 }
 
+/** One already-framed physical source line. Byte offsets are owned by callers. */
+export interface LyncPhysicalLine {
+  file: string;
+  line: number;
+  bytes: Uint8Array;
+  terminator: "" | "\n";
+}
+
 const topLevelFields = new Set([
   "v",
   "id",
@@ -140,7 +148,7 @@ export class LyncUnion {
   union(input: { file: string; bytes: Uint8Array | string }): LyncUnionIngestResult[] {
     const results: LyncUnionIngestResult[] = [];
     for (const raw of parsePhysicalLines(input.file, input.bytes)) {
-      const line = parseLine(raw);
+      const line = parseLyncLine(raw);
       this.lines.push(line);
       results.push(this.ingestParsedLine(line));
     }
@@ -242,7 +250,7 @@ export class LyncUnion {
 export function parseLyncFiles(
   inputs: { file: string; bytes: Uint8Array | string }[],
 ): LyncParseResult {
-  const lines = inputs.flatMap((input) => parsePhysicalLines(input.file, input.bytes).map(parseLine));
+  const lines = inputs.flatMap((input) => parsePhysicalLines(input.file, input.bytes).map(parseLyncLine));
   const { acceptedById, conflictIds, conflictVariants } = markConflicts(lines);
   return buildResult(lines, acceptedById, conflictIds, conflictVariants, [], 0);
 }
@@ -330,7 +338,12 @@ function parsePhysicalLines(file: string, bytesOrString: Uint8Array | string) {
   return lines;
 }
 
-function parseLine(raw: { file: string; line: number; bytes: Uint8Array; terminator: "" | "\n" }): LyncLineDiagnostic {
+/**
+ * Classify one complete physical line with the exact reference-parser rules.
+ * Streaming/indexed readers use this seam so envelope semantics remain owned
+ * here while they are free to discard the returned bytes and payload graph.
+ */
+export function parseLyncLine(raw: LyncPhysicalLine): LyncLineDiagnostic {
   const base = { file: raw.file, line: raw.line, bytes: raw.bytes, terminator: raw.terminator } as const;
   const spliced = splitSplice(raw.bytes);
   if (spliced.digest && sha256Hex(spliced.bodyBytes) !== spliced.digest.slice("sha256:".length)) {

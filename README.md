@@ -157,6 +157,54 @@ never silently dropped. `exportCarriedLyncBytes(parsed)` re-emits the carried
 bytes. `LyncUnion` performs the same union incrementally and can buffer
 children until their first missing parent arrives.
 
+For source sets too large to retain twice in a browser, use the re-readable
+indexed union. It applies the same line parser and union rules while retaining
+only source locators, envelope topology, digests, diagnostics, and policy
+state. Payload graphs exist for one line at a time; exact source lines and
+view-eligible events are re-read lazily and verified against their indexed
+bytes before they are returned.
+
+<!-- example: fragment — browser File adapter; indexed-union tests exercise the exact source contract -->
+```ts
+import { indexLyncSources } from "@deepfates/lync/indexed-union";
+
+const indexed = await indexLyncSources([{
+  file: file.name,
+  size: file.size,
+  expectedSha256,
+  async *stream() {
+    const reader = file.stream().getReader();
+    try {
+      for (;;) {
+        const item = await reader.read();
+        if (item.done) break;
+        yield item.value;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  },
+  async read(start, end) {
+    return new Uint8Array(await file.slice(start, end).arrayBuffer());
+  },
+}]);
+
+for await (const { event } of indexed.events()) {
+  // Present, index, or reduce this event; the next event is still on disk.
+  console.log(event.id, indexed.presentationProfile(event.id));
+}
+```
+
+`maxChunkBytes` and `maxLineBytes` are explicit admission bounds. A source must
+replay its declared length; an optional expected SHA-256 is authenticated in
+the indexing pass. Every lazy read also verifies its exact byte range and line
+terminator, so a changed, truncated, or reordered backing source fails closed.
+`ownership` reports observed input size and the retained locator/envelope
+counts; `retainedRawBytes` and `retainedPayloadObjects` are zero by contract.
+The source object itself remains the byte authority and is not counted as index
+ownership. Existing eager APIs are unchanged for small, source-preserving
+workflows.
+
 ### Present known events without guessing
 
 `@deepfates/lync/presentation` is the browser-safe readable boundary for open
@@ -354,6 +402,7 @@ so a heartbeat refreshes a peer without burning a new clock.
 ### Subpath exports
 
 - `@deepfates/lync/events` — line parsing, carried-byte export, incremental union
+- `@deepfates/lync/indexed-union` — bounded raw-payload indexing over re-readable sources
 - `@deepfates/lync/store` — the event-store contract and serialization
 - `@deepfates/lync/memory-log`, `@deepfates/lync/file-log`, `@deepfates/lync/idb-log` — stores
   (`file-log` is node-only; it keeps `node:fs` off the browser path)
