@@ -42,7 +42,7 @@ world histories. These domains do not share one forced ontology: the envelope
 preserves causal references and integrity, while versioned pacts define typed
 relationships and applications choose projections appropriate to them.
 
-This checkout is version 0.4.2; npm currently serves 0.3.0 pending an
+This checkout is version 0.4.3; npm currently serves 0.3.0 pending an
 owner-approved release. The format remains a v0 draft in both. Use a source
 checkout when following 0.4-only documentation, and check
 `npm view @deepfates/lync version` before assuming the published package has

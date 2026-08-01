@@ -1,7 +1,7 @@
-# Lync 0.4.2 release candidate
+# Lync 0.4.3 release candidate
 
-Lync 0.4.2 is prepared but not yet published. npm still serves 0.3.0; do not
-tag 0.4.2 or describe it as registry-available until the owner-authorized
+Lync 0.4.3 is prepared but not yet published. npm still serves 0.3.0; do not
+tag 0.4.3 or describe it as registry-available until the owner-authorized
 publication step succeeds.
 
 The durable format contract did not change. Both 0.3 and 0.4 read and write the
@@ -13,6 +13,9 @@ presentation profile. `prepack` rebuilds `dist`, and the package check extracts
 and executes the physical tarball rather than trusting workspace resolution.
 The v2 profile also presents Behold's safe focused attack/dig evidence and
 ordinary failure, suspension, cancellation, and visible-block-change events.
+The browser-safe indexed-union path adds re-readable streaming source scans and
+lazy authenticated event reads without retaining raw corpus bytes or payload
+graphs; existing eager APIs remain unchanged.
 
 Runtime boundaries:
 

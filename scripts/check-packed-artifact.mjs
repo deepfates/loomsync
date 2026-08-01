@@ -36,8 +36,8 @@ try {
     `${pathToFileURL(join(packageRoot, "dist", "presentation.js")).href}?packed=1`
   );
 
-  if (manifest.version !== "0.4.2") {
-    throw new Error(`expected packed version 0.4.2, received ${manifest.version}`);
+  if (manifest.version !== "0.4.3") {
+    throw new Error(`expected packed version 0.4.3, received ${manifest.version}`);
   }
   if (presentation.BEHOLD_INHABITANT_PROFILE_V2 !== "org.behold.inhabitant.v2") {
     throw new Error("packed presentation module does not export the Behold v2 profile");
