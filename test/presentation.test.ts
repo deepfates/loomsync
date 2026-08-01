@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -7,6 +8,7 @@ import type { LyncEventBody } from "../src/events.js";
 import { parseLyncFiles } from "../src/events.js";
 import {
   BEHOLD_INHABITANT_PROFILE,
+  BEHOLD_INHABITANT_PROFILE_V2,
   htmlToPlainText,
   presentLyncEvent,
   resolveLyncPresentationProfiles,
@@ -150,6 +152,68 @@ describe("Lync presentation contract", () => {
     expect(projections[1].text).not.toContain("raw response");
     expect(projections[1].source.id).toBe(events[1].id);
     expect(projections[1].source.parents).toEqual(events[1].parents);
+  });
+
+  it("keeps the complete v1 Oxford projection byte-for-byte stable", async () => {
+    const fixture = await readFile(
+      fileURLToPath(new URL("./fixtures/presentation/oxford-aster-human-semantic-v1.lync", import.meta.url)),
+    );
+    const parsed = parseLyncFiles([{ file: "oxford-v1.lync", bytes: fixture }]);
+    const events = parsed.lines.flatMap((line) => line.event ? [line.event] : []);
+    const profiles = resolveLyncPresentationProfiles(events);
+    const decisions = events.map((body) =>
+      presentLyncEvent(body, { loomProfile: profiles.get(body.id) })
+    );
+
+    expect(
+      createHash("sha256").update(JSON.stringify(decisions)).digest("hex"),
+    ).toBe("46febbe7a89951e5ea57593366cb39134d64430bb09aaa8a1ff510a8e052f6c0");
+  });
+
+  it("presents Behold v2 sound, time, and whisper fields while diagnosing source-only data", async () => {
+    const fixture = await readFile(
+      fileURLToPath(new URL("./fixtures/presentation/oxford-cedar-human-semantic-v2.lync", import.meta.url)),
+    );
+    const parsed = parseLyncFiles([{ file: "oxford-v2.lync", bytes: fixture }]);
+    const events = parsed.lines.flatMap((line) => line.event ? [line.event] : []);
+    const profiles = resolveLyncPresentationProfiles(events);
+    const projections = events.map((body) => presented(body, profiles.get(body.id)));
+    const turn = projections[1];
+
+    expect(profiles.get(events[0].id)).toBe(BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projections[0].contract).toBe("org.behold.presentation.inhabitant-turn.v2");
+    expect(turn.contract).toBe("org.behold.presentation.inhabitant-turn.v2");
+    expect(turn.text).toContain("Heard block.stone_pressure_plate.click_on (nearby, right).");
+    expect(turn.text).toContain("OxfordCedar whispered to Birch: Hello quietly.");
+    expect(turn.text).toContain("Minecraft confirmed the private whisper: Hello quietly.");
+    expect(turn.text).toContain("Heard 2 sounds: 2 × block.stone_pressure_plate.click_on (nearby, right).");
+    expect(turn.text).toContain("Time passed: 32016 ms.");
+    expect(turn.text).not.toContain("must-not-appear");
+    expect(turn.diagnostics).toEqual(expect.arrayContaining([
+      {
+        code: "source_only_observation_event_field",
+        sourcePath: "payload.payload.observation.events[0].data.packetPosition",
+      },
+      {
+        code: "source_only_action_input_field",
+        sourcePath: "payload.payload.action.input.debug",
+      },
+      {
+        code: "source_only_outcome_field",
+        sourcePath: "payload.payload.outcome.result.serverCommand",
+      },
+      {
+        code: "source_only_observation_event_field",
+        sourcePath: "payload.payload.nextObservation.events[0].data.occurrences[0].data.hiddenCoordinate",
+      },
+      {
+        code: "source_only_observation_event_field",
+        sourcePath: "payload.payload.nextObservation.events[1].data.ticks",
+      },
+    ]));
+    expect(turn.diagnostics.some((item) => item.code === "unsupported_observation_event")).toBe(false);
+    expect(turn.diagnostics.some((item) => item.code === "unsupported_action_input")).toBe(false);
+    expect(turn.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
   });
 
   it("makes an exact claimed profile fail closed instead of using generic bait", () => {

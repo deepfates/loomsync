@@ -1,10 +1,15 @@
 import type { LyncEventBody } from "./events.js";
 import {
   BEHOLD_INHABITANT_PROFILE,
+  BEHOLD_INHABITANT_PROFILE_V2,
   presentBeholdInhabitantEvent,
+  presentBeholdInhabitantEventV2,
 } from "./presenters/behold-inhabitant.js";
 
-export { BEHOLD_INHABITANT_PROFILE } from "./presenters/behold-inhabitant.js";
+export {
+  BEHOLD_INHABITANT_PROFILE,
+  BEHOLD_INHABITANT_PROFILE_V2,
+} from "./presenters/behold-inhabitant.js";
 
 export type LyncPresentationKind = "content" | "structure";
 
@@ -164,6 +169,13 @@ export function presentLyncEvent(
     return presentation
       ? normalizePresentation(event, presentation)
       : unsupported("org.behold.presentation.inhabitant-turn.v1", "unsupported_profile_event");
+  }
+
+  if (context.loomProfile === BEHOLD_INHABITANT_PROFILE_V2) {
+    const presentation = presentBeholdInhabitantEventV2(event);
+    return presentation
+      ? normalizePresentation(event, presentation)
+      : unsupported("org.behold.presentation.inhabitant-turn.v2", "unsupported_profile_event");
   }
 
   const known = splicePresenters[event.kind];

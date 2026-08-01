@@ -107,12 +107,23 @@ The reference presenter currently carries exact, tested readers for:
 - the Behold root profile `org.behold.inhabitant.v1`, limited to the ratified
   `behold.entity-loom.v1`, `behold.entity-turn-link.v1`,
   `behold.entity-turn.v1`, and `minecraft-human-semantic-v1` allowlists;
+- the additive Behold root profile `org.behold.inhabitant.v2`, with the same
+  envelope/body boundary plus typed private-whisper action results, coarse
+  `sound_heard`, `behold.sound-sequence.v1` summaries, and `time_passed` pulses;
 - the shallow generic text/message fields above.
 
 The Behold presenter preserves script/model/operator provenance and distinct
 success, rejection, failure, cancellation, and fallback meanings. It never
 exposes raw provider exchanges or private reasoning and never claims an older
 or unknown resident profile by nested shape.
+
+The v2 sound projection names only the native sound and Behold's coarse
+distance/direction. Packet volume, pitch, compaction timestamps, sequence
+bookkeeping, and any unknown fields stay in the source event. Whisper text is
+intentionally readable as resident conduct in this history; tool identities
+and unknown input/result fields remain source-only. Every unknown field under
+these v2 additions produces an explicit diagnostic rather than inferred prose.
+The v1 dispatcher and projection remain unchanged.
 
 These are presenter implementations of external domain pacts, not a kind
 registry in the format. Unknown kinds remain valid Lync data. Adding a new

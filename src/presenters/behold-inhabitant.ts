@@ -6,8 +6,19 @@ import type {
 } from "../presentation.js";
 
 export const BEHOLD_INHABITANT_PROFILE = "org.behold.inhabitant.v1";
+export const BEHOLD_INHABITANT_PROFILE_V2 = "org.behold.inhabitant.v2";
 
-const CONTRACT = "org.behold.presentation.inhabitant-turn.v1";
+const V1 = {
+  profile: BEHOLD_INHABITANT_PROFILE,
+  contract: "org.behold.presentation.inhabitant-turn.v1",
+  version: 1,
+} as const;
+const V2 = {
+  profile: BEHOLD_INHABITANT_PROFILE_V2,
+  contract: "org.behold.presentation.inhabitant-turn.v2",
+  version: 2,
+} as const;
+type BeholdPresentationProfile = typeof V1 | typeof V2;
 const HUMAN_PROFILE = "minecraft-human-semantic-v1";
 const OBSERVATION_PROTOCOL = "behold.minecraft-human-semantic-observation.v1";
 
@@ -19,16 +30,32 @@ const OBSERVATION_PROTOCOL = "behold.minecraft-human-semantic-observation.v1";
 export function presentBeholdInhabitantEvent(
   event: LyncEventBody,
 ): LyncPresentation | null {
-  if (event.kind === "lync/loom") return presentResidentLoom(event);
-  if (event.kind === "lync/turn") return presentResidentTurn(event);
+  return presentBeholdEvent(event, V1);
+}
+
+export function presentBeholdInhabitantEventV2(
+  event: LyncEventBody,
+): LyncPresentation | null {
+  return presentBeholdEvent(event, V2);
+}
+
+function presentBeholdEvent(
+  event: LyncEventBody,
+  profile: BeholdPresentationProfile,
+): LyncPresentation | null {
+  if (event.kind === "lync/loom") return presentResidentLoom(event, profile);
+  if (event.kind === "lync/turn") return presentResidentTurn(event, profile);
   return null;
 }
 
-function presentResidentLoom(event: LyncEventBody): LyncPresentation | null {
+function presentResidentLoom(
+  event: LyncEventBody,
+  profile: BeholdPresentationProfile,
+): LyncPresentation | null {
   const meta = recordField(event.payload, "meta");
   if (
     stringField(meta, "protocol") !== "behold.entity-loom.v1" ||
-    stringField(meta, "profile") !== BEHOLD_INHABITANT_PROFILE
+    stringField(meta, "profile") !== profile.profile
   ) {
     return null;
   }
@@ -38,7 +65,7 @@ function presentResidentLoom(event: LyncEventBody): LyncPresentation | null {
   const lines = [
     `Behold resident life: ${entityId}`,
     circleId ? `World circle: ${circleId}` : null,
-    `Profile: ${BEHOLD_INHABITANT_PROFILE}`,
+    `Profile: ${profile.profile}`,
   ].filter((line): line is string => line !== null);
   const section: LyncPresentationSection = {
     role: "structure",
@@ -48,14 +75,17 @@ function presentResidentLoom(event: LyncEventBody): LyncPresentation | null {
   return {
     text: section.text,
     kind: "structure",
-    contract: CONTRACT,
+    contract: profile.contract,
     source: presentationSource(event),
     sections: [section],
     diagnostics: [],
   };
 }
 
-function presentResidentTurn(event: LyncEventBody): LyncPresentation | null {
+function presentResidentTurn(
+  event: LyncEventBody,
+  profile: BeholdPresentationProfile,
+): LyncPresentation | null {
   const link = recordField(event.payload, "meta");
   const turn = recordField(event.payload, "payload");
   if (
@@ -86,20 +116,22 @@ function presentResidentTurn(event: LyncEventBody): LyncPresentation | null {
     entityId,
     "payload.payload.observation",
     diagnostics,
+    profile,
   );
   if (observation) sections.push(observation);
 
   const utterance = presentUtterance(turn.utterance);
   if (utterance) sections.push(utterance);
 
-  sections.push(presentAction(turn.action, entityId, diagnostics));
-  sections.push(presentOutcome(turn.action, turn.outcome, diagnostics));
+  sections.push(presentAction(turn.action, entityId, diagnostics, profile));
+  sections.push(presentOutcome(turn.action, turn.outcome, diagnostics, profile));
 
   const nextObservation = presentObservation(
     turn.nextObservation,
     entityId,
     "payload.payload.nextObservation",
     diagnostics,
+    profile,
   );
   if (nextObservation) sections.push(nextObservation);
 
@@ -117,7 +149,7 @@ function presentResidentTurn(event: LyncEventBody): LyncPresentation | null {
   return {
     text: [structure.join("\n"), ...sections.map(sectionText)].join("\n\n"),
     kind: "content",
-    contract: CONTRACT,
+    contract: profile.contract,
     source: presentationSource(event),
     sections,
     diagnostics,
@@ -143,6 +175,7 @@ function presentObservation(
   entityId: string,
   sourcePath: string,
   diagnostics: LyncPresentationDiagnostic[],
+  profile: BeholdPresentationProfile,
 ): LyncPresentationSection | null {
   const observation = recordValue(value);
   if (!observation || stringField(observation, "protocol") !== OBSERVATION_PROTOCOL) {
@@ -310,6 +343,27 @@ function presentObservation(
           ? [`Public chat${from ? ` from ${from}` : ""}: ${text}`]
           : [];
       }
+      if (profile.version === 2 && type === "sound_heard") {
+        diagnoseObservationEventEnvelope(event, `${sourcePath}.events[${index}]`, diagnostics);
+        return presentSoundHeard(data, `${sourcePath}.events[${index}]`, diagnostics);
+      }
+      if (profile.version === 2 && type === "sound_sequence_heard") {
+        diagnoseObservationEventEnvelope(event, `${sourcePath}.events[${index}]`, diagnostics);
+        return presentSoundSequence(data, `${sourcePath}.events[${index}]`, diagnostics);
+      }
+      if (profile.version === 2 && type === "time_passed") {
+        diagnoseObservationEventEnvelope(event, `${sourcePath}.events[${index}]`, diagnostics);
+        diagnoseSourceOnlyFields(
+          data,
+          new Set(["elapsedMs"]),
+          `${sourcePath}.events[${index}].data`,
+          diagnostics,
+        );
+        const elapsedMs = integerField(data, "elapsedMs");
+        return elapsedMs !== null && elapsedMs >= 0
+          ? [`Time passed: ${elapsedMs} ms.`]
+          : unsupportedObservationEvent(`${sourcePath}.events[${index}]`, diagnostics);
+      }
       diagnostics.push({
         code: "unsupported_observation_event",
         sourcePath: `${sourcePath}.events[${index}]`,
@@ -345,6 +399,7 @@ function presentAction(
   value: unknown,
   entityId: string,
   diagnostics: LyncPresentationDiagnostic[],
+  profile: BeholdPresentationProfile,
 ): LyncPresentationSection {
   const action = recordValue(value);
   const name = stringField(action, "name") ?? "unknown action";
@@ -396,9 +451,35 @@ function presentAction(
     const reason = stringField(input, "reason");
     description = `${entityId} waited for another event${reason ? `: ${reason}` : "."}`;
     if (reason) paths.push("payload.payload.action.input.reason");
+  } else if (profile.version === 2 && name === "whisper") {
+    diagnoseSourceOnlyFields(
+      action,
+      new Set(["id", "name", "input", "kind", "toolCallId", "source"]),
+      "payload.payload.action",
+      diagnostics,
+      new Set(),
+      "source_only_action_field",
+    );
+    diagnoseSourceOnlyFields(
+      input,
+      new Set(["username", "text"]),
+      "payload.payload.action.input",
+      diagnostics,
+      new Set(),
+      "source_only_action_input_field",
+    );
+    const username = stringField(input, "username")?.trim();
+    const text = stringField(input, "text")?.trim();
+    if (username && text) {
+      description = `${entityId} whispered to ${username}: ${text}`;
+      paths.push(
+        "payload.payload.action.input.username",
+        "payload.payload.action.input.text",
+      );
+    }
   }
   if (!description) {
-    description = `${entityId} recorded ${name}; its input has no safe v1 Textile presenter.`;
+    description = `${entityId} recorded ${name}; its input has no safe v${profile.version} Textile presenter.`;
     diagnostics.push({
       code: "unsupported_action_input",
       sourcePath: "payload.payload.action.input",
@@ -415,6 +496,7 @@ function presentOutcome(
   actionValue: unknown,
   outcomeValue: unknown,
   diagnostics: LyncPresentationDiagnostic[],
+  profile: BeholdPresentationProfile,
 ): LyncPresentationSection {
   const action = recordValue(actionValue);
   const outcome = recordValue(outcomeValue);
@@ -427,6 +509,7 @@ function presentOutcome(
     "payload.payload.outcome.eventType",
   ];
   let detail: string | null = null;
+  let v2ShownResultKeys: Set<string> | null = null;
   if (actionName === "look_direction") {
     const orientation = recordField(result, "orientation");
     const facing = stringField(orientation, "facing");
@@ -454,6 +537,33 @@ function presentOutcome(
       ? " The resident observed peer chat."
       : " No peer chat was observed.";
     paths.push("payload.payload.outcome.result.sawPeerChat");
+  } else if (profile.version === 2 && actionName === "whisper" && result) {
+    diagnoseSourceOnlyFields(
+      outcome,
+      new Set(["ok", "eventType", "result"]),
+      "payload.payload.outcome",
+      diagnostics,
+      new Set(),
+      "source_only_outcome_field",
+    );
+    const resultOk = typeof result.ok === "boolean" ? result.ok : null;
+    const message = stringField(result, "message")?.trim();
+    const error = stringField(result, "error")?.trim();
+    if (resultOk === true && message) {
+      detail = ` Minecraft confirmed the private whisper: ${message}`;
+      v2ShownResultKeys = new Set(["ok", "message"]);
+      paths.push(
+        "payload.payload.outcome.result.ok",
+        "payload.payload.outcome.result.message",
+      );
+    } else if (resultOk === false && error) {
+      detail = ` Minecraft rejected the private whisper: ${humanize(error)}.`;
+      v2ShownResultKeys = new Set(["ok", "error"]);
+      paths.push(
+        "payload.payload.outcome.result.ok",
+        "payload.payload.outcome.result.error",
+      );
+    }
   }
   if (result && detail === null) {
     diagnostics.push({
@@ -463,13 +573,13 @@ function presentOutcome(
   }
   if (result) {
     const shownResultKeys =
-      actionName === "look_direction"
+      v2ShownResultKeys ?? (actionName === "look_direction"
         ? new Set(["orientation"])
         : actionName === "move_controls"
           ? new Set(["bodyMoved"])
           : actionName === "wait_for_event"
             ? new Set(["sawPeerChat"])
-            : new Set<string>();
+            : new Set<string>());
     for (const key of Object.keys(result)) {
       if (!shownResultKeys.has(key)) {
         diagnostics.push({
@@ -485,6 +595,145 @@ function presentOutcome(
     text: `${actionName} ${terminal} (${eventType}).${detail ?? ""}`,
     sourcePaths: paths,
   };
+}
+
+function presentSoundHeard(
+  data: Record<string, unknown> | null,
+  eventPath: string,
+  diagnostics: LyncPresentationDiagnostic[],
+): string[] {
+  diagnoseSourceOnlyFields(
+    data,
+    new Set(["sound", "distanceBand", "relativeDirection", "volume", "pitch"]),
+    `${eventPath}.data`,
+    diagnostics,
+    new Set(["volume", "pitch"]),
+  );
+  const sound = stringField(data, "sound")?.trim();
+  const distanceBand = stringField(data, "distanceBand")?.trim();
+  const relativeDirection = stringField(data, "relativeDirection")?.trim();
+  if (!sound || !distanceBand || !relativeDirection) {
+    return unsupportedObservationEvent(eventPath, diagnostics);
+  }
+  return [
+    `Heard ${sound} (${distanceBand}, ${relativeDirection}).`,
+  ];
+}
+
+function diagnoseObservationEventEnvelope(
+  event: Record<string, unknown> | null,
+  eventPath: string,
+  diagnostics: LyncPresentationDiagnostic[],
+): void {
+  diagnoseSourceOnlyFields(
+    event,
+    new Set(["sequence", "type", "salience", "source", "isNew", "data"]),
+    eventPath,
+    diagnostics,
+  );
+}
+
+function presentSoundSequence(
+  data: Record<string, unknown> | null,
+  eventPath: string,
+  diagnostics: LyncPresentationDiagnostic[],
+): string[] {
+  diagnoseSourceOnlyFields(
+    data,
+    new Set([
+      "compaction",
+      "fromSequence",
+      "throughSequence",
+      "omittedIndividualEvents",
+      "occurrences",
+    ]),
+    `${eventPath}.data`,
+    diagnostics,
+  );
+  if (stringField(data, "compaction") !== "behold.sound-sequence.v1") {
+    return unsupportedObservationEvent(eventPath, diagnostics);
+  }
+  const occurrences = arrayField(data, "occurrences");
+  if (occurrences.length === 0) {
+    return unsupportedObservationEvent(eventPath, diagnostics);
+  }
+
+  let total = 0;
+  const descriptions: string[] = [];
+  for (let index = 0; index < occurrences.length; index += 1) {
+    const occurrence = recordValue(occurrences[index]);
+    const occurrencePath = `${eventPath}.data.occurrences[${index}]`;
+    diagnoseSourceOnlyFields(
+      occurrence,
+      new Set([
+        "fromSequence",
+        "throughSequence",
+        "count",
+        "firstAt",
+        "lastAt",
+        "salience",
+        "data",
+      ]),
+      occurrencePath,
+      diagnostics,
+    );
+    const count = integerField(occurrence, "count");
+    const sound = recordField(occurrence, "data");
+    diagnoseSourceOnlyFields(
+      sound,
+      new Set(["sound", "distanceBand", "relativeDirection", "volume", "pitch"]),
+      `${occurrencePath}.data`,
+      diagnostics,
+      new Set(["volume", "pitch"]),
+    );
+    const name = stringField(sound, "sound")?.trim();
+    const distanceBand = stringField(sound, "distanceBand")?.trim();
+    const relativeDirection = stringField(sound, "relativeDirection")?.trim();
+    if (
+      count === null ||
+      count < 1 ||
+      !name ||
+      !distanceBand ||
+      !relativeDirection
+    ) {
+      return unsupportedObservationEvent(eventPath, diagnostics);
+    }
+    total += count;
+    descriptions.push(
+      `${count} × ${name} (${distanceBand}, ${relativeDirection})`,
+    );
+  }
+  return [`Heard ${total} sounds: ${descriptions.join("; ")}.`];
+}
+
+function unsupportedObservationEvent(
+  eventPath: string,
+  diagnostics: LyncPresentationDiagnostic[],
+): string[] {
+  diagnostics.push({
+    code: "unsupported_observation_event",
+    sourcePath: eventPath,
+  });
+  return [];
+}
+
+function diagnoseSourceOnlyFields(
+  value: Record<string, unknown> | null,
+  allowed: Set<string>,
+  sourcePath: string,
+  diagnostics: LyncPresentationDiagnostic[],
+  explicitlySourceOnly: Set<string> = new Set(),
+  code = "source_only_observation_event_field",
+): void {
+  if (!value) return;
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key) || explicitlySourceOnly.has(key)) {
+      diagnostics.push({
+        code,
+        sourcePath: `${sourcePath}.${key}`,
+      });
+    }
+  }
 }
 
 function outcomeTerminal(ok: boolean | null, eventType: string): string {
