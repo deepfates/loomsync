@@ -46,3 +46,9 @@ reconciliation. A valid missing-LF final event is preserved and readable but
 requires an explicit repair path before append can resume. A changed source
 currently causes a complete bounded-memory rebuild; it is not yet an
 incremental suffix reconcile.
+
+## Notes
+
+**2026-08-01T15:07:22Z**
+
+Principal retained-life gate after d7aea47 used disposable snapshots of active Behold episode 000002 canonical files, never the live sources. Ash: 79,436,582 bytes/1,507 turns, 3.76s first index, +557,400 heap bytes at open and +1,160,744 after tail(12). Reed: 30,754,540 bytes/629 turns, 1.49s first index, +538,560 heap bytes at open and +1,249,680 after tail(12). Unchanged reopen was 31-36ms. Eager Loom count equaled cursor depth for both and decoded last-12 tails had exact parity after excluding cursor-only locator/digest metadata. This crosses the retained ~100MB Behold parity checkpoint. Ticket remains in_progress for 2GB, broader vector/crash/latency bounds, suffix reconciliation, and missing-LF repair.
