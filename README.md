@@ -157,6 +157,20 @@ never silently dropped. `exportCarriedLyncBytes(parsed)` re-emits the carried
 bytes. `LyncUnion` performs the same union incrementally and can buffer
 children until their first missing parent arrives.
 
+Long-running Node processes can use `@deepfates/lync/file-loom-cursor` when
+they need one explicitly selected Loom thread without retaining the whole
+history. It stores only disposable SQLite locators, digests, and topology;
+payloads stay solely in canonical JSONL and are re-read and verified on demand.
+The cursor never chooses among branch tips. Its `node:sqlite` surface requires
+**Node >=22.13**; importing the package root or browser-safe subpaths does not
+load SQLite. An unchanged source manifest reuses the catalog without scanning
+payload bytes. Every operation fences that manifest with file identity and
+exact returned events are re-authenticated; source changes or catalog damage
+currently trigger a complete, bounded-memory rebuild rather than suffix-only
+reconciliation. Turn results include a payload-free canonical locator plus a
+derived chain digest binding the selected root-to-turn prefix. Opening never
+silently adds a missing final LF; append refuses a non-LF-terminated source.
+
 For source sets too large to retain twice in a browser, use the re-readable
 indexed union. It applies the same line parser and union rules while retaining
 only source locators, envelope topology, digests, diagnostics, and policy

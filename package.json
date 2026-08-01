@@ -51,6 +51,11 @@
       "import": "./dist/file-log.js",
       "default": "./dist/file-log.js"
     },
+    "./file-loom-cursor": {
+      "types": "./dist/file-loom-cursor.d.ts",
+      "import": "./dist/file-loom-cursor.js",
+      "default": "./dist/file-loom-cursor.js"
+    },
     "./idb-log": {
       "types": "./dist/idb-log.d.ts",
       "import": "./dist/idb-log.js",

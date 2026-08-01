@@ -2,10 +2,15 @@ import {
   parseLyncLine,
   type LyncEventBody,
   type LyncLineClass,
-  type LyncLineDiagnostic,
   type LyncObstacle,
 } from "./events.js";
 import { Sha256, sha256Hex } from "./sha256.js";
+import {
+  adjudicateIndexedLyncBucket,
+  compactIndexedLyncLine,
+  isCompactUnionCandidate,
+  type CompactIndexedLyncLine,
+} from "./compact-union.js";
 
 export interface ReReadableLyncSource {
   /** Stable source identity shown in diagnostics. */
@@ -153,7 +158,7 @@ export async function indexLyncSources(
   const sourceList = [...sources];
   const maxChunkBytes = positiveInteger(options.maxChunkBytes ?? DEFAULT_MAX_CHUNK_BYTES, "maxChunkBytes");
   const maxLineBytes = positiveInteger(options.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES, "maxLineBytes");
-  const lines: MutableIndexedLine[] = [];
+  const lines: CompactIndexedLyncLine[] = [];
   let sourceBytesScanned = 0;
   let maxChunkBytesObserved = 0;
   let maxLineBytesObserved = 0;
@@ -173,7 +178,7 @@ export async function indexLyncSources(
       const bytes = lineBuffer.subarray(0, lineLength);
       maxLineBytesObserved = Math.max(maxLineBytesObserved, lineLength);
       const diagnostic = parseLyncLine({ file: source.file, line: lineNumber, bytes, terminator });
-      lines.push(compactLine(diagnostic, {
+      lines.push(compactIndexedLyncLine(diagnostic, {
         source: sourceIndex,
         file: source.file,
         line: lineNumber,
@@ -361,7 +366,7 @@ function inspectRetainedOwnership(value: unknown) {
 }
 
 function unresolvedFirstParents(
-  accepted: Map<string, MutableIndexedLine>,
+  accepted: Map<string, CompactIndexedLyncLine>,
   conflicts: Set<string>,
 ): IndexedLyncPendingParent[] {
   const result: IndexedLyncPendingParent[] = [];
@@ -374,7 +379,7 @@ function unresolvedFirstParents(
 }
 
 function indexedDownset(
-  accepted: Map<string, MutableIndexedLine>,
+  accepted: Map<string, CompactIndexedLyncLine>,
   conflicts: Set<string>,
   id: string,
 ) {
@@ -409,53 +414,8 @@ function indexedDownset(
   return { ids: [...ids].sort(), partial: normalized.length > 0, obstacles: normalized };
 }
 
-type MutableIndexedLine = IndexedLyncLine & {
-  class: LyncLineClass;
-  duplicateSighting?: boolean;
-  metadataDisagreement?: boolean;
-};
-
-function compactLine(diagnostic: LyncLineDiagnostic, locator: IndexedLyncLocator): MutableIndexedLine {
-  const event = diagnostic.event;
-  return {
-    locator: Object.freeze({ ...locator }),
-    class: diagnostic.class,
-    parsedClass: diagnostic.class,
-    reason: diagnostic.reason,
-    ...(diagnostic.id ? { id: diagnostic.id } : {}),
-    ...(diagnostic.hasDigest !== undefined ? { hasDigest: diagnostic.hasDigest } : {}),
-    ...(diagnostic.hasSig !== undefined ? { hasSig: diagnostic.hasSig } : {}),
-    ...(diagnostic.bodyDigest ? { bodyDigest: diagnostic.bodyDigest } : {}),
-    rawSha256: sha256Hex(diagnostic.bytes),
-    ...(diagnostic.digest ? { digest: diagnostic.digest } : {}),
-    ...(diagnostic.sig ? { sig: diagnostic.sig } : {}),
-    ...(diagnostic.nonconformingReasons ? { nonconformingReasons: [...diagnostic.nonconformingReasons] } : {}),
-    ...(event ? { envelope: compactEnvelope(event) } : {}),
-  };
-}
-
-function compactEnvelope(event: LyncEventBody): IndexedLyncEnvelope {
-  const meta = event.kind === "lync/loom" && isRecord(event.payload.meta)
-    ? event.payload.meta
-    : null;
-  return {
-    id: event.id,
-    kind: event.kind,
-    at: event.at,
-    author: {
-      actor: event.author.actor,
-      ...(typeof event.author.operator === "string" ? { operator: event.author.operator } : {}),
-      ...(typeof event.author.imported_by === "string" ? { imported_by: event.author.imported_by } : {}),
-    },
-    parents: [...event.parents],
-    ...(typeof event.marked === "string" ? { marked: event.marked } : {}),
-    ...(typeof event.critical === "boolean" ? { critical: event.critical } : {}),
-    ...(typeof meta?.profile === "string" ? { loomProfile: meta.profile } : {}),
-  };
-}
-
 function resolvePresentationProfiles(
-  accepted: Map<string, MutableIndexedLine>,
+  accepted: Map<string, CompactIndexedLyncLine>,
   conflicts: Set<string>,
 ) {
   const resolved = new Map<string, string | null>();
@@ -495,73 +455,35 @@ function resolvePresentationProfiles(
   return resolved;
 }
 
-async function adjudicate(lines: MutableIndexedLine[], sources: readonly ReReadableLyncSource[]) {
-  const byId = new Map<string, MutableIndexedLine[]>();
+async function adjudicate(lines: CompactIndexedLyncLine[], sources: readonly ReReadableLyncSource[]) {
+  const byId = new Map<string, CompactIndexedLyncLine[]>();
   for (const line of lines) {
-    if (!isCandidate(line)) continue;
+    if (!isCompactUnionCandidate(line)) continue;
     const bucket = byId.get(line.id) ?? [];
     bucket.push(line);
     byId.set(line.id, bucket);
   }
-  const acceptedById = new Map<string, MutableIndexedLine>();
+  const acceptedById = new Map<string, CompactIndexedLyncLine>();
   const conflictIds = new Set<string>();
   const conflictVariants: IndexedLyncConflictVariant[] = [];
 
   for (const bucket of byId.values()) {
-    const bodies = await exactBodyGroups(bucket, sources);
-    if (bodies.length > 1) {
+    const result = await adjudicateIndexedLyncBucket(bucket, (line) => readBody(line, sources));
+    if (result.conflictGroups.length > 0) {
       conflictIds.add(bucket[0]!.id!);
-      for (const line of bucket) {
-        line.class = "conflict-variant";
-        line.reason = "same id with different body bytes";
-      }
-      for (const group of bodies) {
+      for (const group of result.conflictGroups) {
         const line = group[0]!;
         conflictVariants.push({ id: line.id!, digest: line.bodyDigest!, locator: line.locator });
       }
       continue;
     }
-    let kept = bucket[0]!;
-    for (let index = 1; index < bucket.length; index += 1) {
-      const line = bucket[index]!;
-      line.duplicateSighting = true;
-      if ((line.digest ?? "") !== (kept.digest ?? "") || (line.sig ?? "") !== (kept.sig ?? "")) {
-        line.metadataDisagreement = true;
-      }
-      if (isRicher(line, kept)) kept = line;
-    }
-    acceptedById.set(kept.id!, kept);
+    acceptedById.set(result.accepted!.id!, result.accepted!);
   }
   conflictVariants.sort((left, right) => compare(`${left.id}\0${left.digest}`, `${right.id}\0${right.digest}`));
   return { acceptedById, conflictIds, conflictVariants };
 }
 
-async function exactBodyGroups(
-  bucket: MutableIndexedLine[],
-  sources: readonly ReReadableLyncSource[],
-): Promise<MutableIndexedLine[][]> {
-  const byDigest = new Map<string, MutableIndexedLine[]>();
-  for (const line of bucket) {
-    const group = byDigest.get(line.bodyDigest!) ?? [];
-    group.push(line);
-    byDigest.set(line.bodyDigest!, group);
-  }
-  if (byDigest.size > 1) return [...byDigest.values()];
-  if (bucket.length < 2) return [bucket];
-
-  // A digest match is not byte equality. Re-read only duplicate-id candidates,
-  // keeping ordinary unique histories free of retained or repeated payload IO.
-  const groups: Array<{ body: Uint8Array; lines: MutableIndexedLine[] }> = [];
-  for (const line of bucket) {
-    const body = await readBody(line, sources);
-    const group = groups.find((item) => bytesEqual(item.body, body));
-    if (group) group.lines.push(line);
-    else groups.push({ body, lines: [line] });
-  }
-  return groups.map((group) => group.lines);
-}
-
-async function readBody(line: MutableIndexedLine, sources: readonly ReReadableLyncSource[]) {
+async function readBody(line: CompactIndexedLyncLine, sources: readonly ReReadableLyncSource[]) {
   const source = sources[line.locator.source]!;
   const through = line.locator.end + (line.locator.terminator ? 1 : 0);
   const exact = await source.read(line.locator.start, through);
@@ -588,21 +510,7 @@ async function readBody(line: MutableIndexedLine, sources: readonly ReReadableLy
   return diagnostic.bodyBytes;
 }
 
-function isCandidate(line: MutableIndexedLine): line is MutableIndexedLine & {
-  id: string;
-  bodyDigest: string;
-  envelope: IndexedLyncEnvelope;
-} {
-  return (line.class === "accepted" || line.class === "nonconforming") && Boolean(line.id && line.bodyDigest && line.envelope);
-}
-
-function isRicher(candidate: IndexedLyncLine, current: IndexedLyncLine) {
-  if (Boolean(candidate.sig) !== Boolean(current.sig)) return Boolean(candidate.sig);
-  if (Boolean(candidate.digest) !== Boolean(current.digest)) return Boolean(candidate.digest);
-  return false;
-}
-
-function computeSuppression(accepted: Map<string, MutableIndexedLine>, conflicts: Set<string>): IndexedLyncSuppression {
+function computeSuppression(accepted: Map<string, CompactIndexedLyncLine>, conflicts: Set<string>): IndexedLyncSuppression {
   const suppressed = new Set<string>();
   const dangling = new Set<string>();
   const eventIds = new Set([...accepted.keys()].filter((id) => !conflicts.has(id)));
@@ -626,7 +534,7 @@ function computeSuppression(accepted: Map<string, MutableIndexedLine>, conflicts
   };
 }
 
-function graphObstacles(accepted: Map<string, MutableIndexedLine>, conflicts: Set<string>): LyncObstacle[] {
+function graphObstacles(accepted: Map<string, CompactIndexedLyncLine>, conflicts: Set<string>): LyncObstacle[] {
   const obstacles: LyncObstacle[] = [];
   for (const line of accepted.values()) {
     const event = line.envelope;
@@ -640,7 +548,7 @@ function graphObstacles(accepted: Map<string, MutableIndexedLine>, conflicts: Se
   return normalizeObstacles(obstacles);
 }
 
-function findCycles(accepted: Map<string, MutableIndexedLine>, conflicts: Set<string>): string[][] {
+function findCycles(accepted: Map<string, CompactIndexedLyncLine>, conflicts: Set<string>): string[][] {
   const GRAY = 1;
   const BLACK = 2;
   const color = new Map<string, number>();
@@ -708,12 +616,6 @@ function intersects(left: Set<string>, right: Set<string>) {
   return false;
 }
 
-function bytesEqual(left: Uint8Array, right: Uint8Array) {
-  if (left.byteLength !== right.byteLength) return false;
-  for (let index = 0; index < left.byteLength; index += 1) if (left[index] !== right[index]) return false;
-  return true;
-}
-
 function compare(left: string, right: string) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -736,8 +638,4 @@ function validateSource(source: ReReadableLyncSource) {
   if (typeof source.stream !== "function" || typeof source.read !== "function") {
     throw new Error(`Lync source ${source.file} is not re-readable`);
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
