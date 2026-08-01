@@ -125,6 +125,18 @@ and unknown input/result fields remain source-only. Every unknown field under
 these v2 additions produces an explicit diagnostic rather than inferred prose.
 The v1 dispatcher and projection remain unchanged.
 
+V2 also recognizes Behold's empty-input `attack_focused_entity` and
+`dig_focused_block` actions. Attack results may show only the body dispatch
+status/confirmation or a typed error; they do not claim damage or expose the
+private target. Dig results may show verb, material before/after, `verified`,
+`observed`, and the confirmation source from `changes` or `attemptedChanges`.
+World coordinates, state ids, adjacent blocks, navigation, command internals,
+and detailed confirmation records remain source-only. The corresponding
+`action_failed`, `controller_suspended`, `cancellation_requested`, and
+`visible_block_changed` events expose only the action name, public lifecycle
+reason/requester, typed error, or visible material transition; intent inputs,
+timestamps, authorization records, and controller internals stay source-only.
+
 These are presenter implementations of external domain pacts, not a kind
 registry in the format. Unknown kinds remain valid Lync data. Adding a new
 presenter is additive; changing the meaning or allowlist of an existing

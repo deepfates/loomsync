@@ -47,3 +47,31 @@ must use a new immutable package identity and test the packed bytes themselves.
   and `org.behold.presentation.inhabitant-turn.v2` execution.
 - The superseded `0.4.0` artifact remains untouched as negative evidence. No
   publication, tag, push, or release was performed.
+
+## Reopened: ordinary material/lifecycle vocabulary
+
+Behold's first exact v2 union proved that successful and interrupted material
+conduct still fell through the v2 presenter's conservative allowlist. Extend
+v2 only for the demonstrated focused attack/dig action shapes, their safe
+change evidence, and `action_failed`, `controller_suspended`,
+`cancellation_requested`, and `visible_block_changed` observations. V1 and the
+existing v2 sound/time/whisper projection remain frozen.
+
+## Material/lifecycle completion evidence
+
+- Focused tests use the demonstrated Behold shapes for attack failure/success,
+  verified `mud_bricks` to `air` digging, interrupted attempted digging, and
+  all four requested observation events. They assert that targets, coordinates,
+  state ids, command errors, controller inputs, and timestamps do not render.
+- The canonical v1 projection SHA remains
+  `46febbe7a89951e5ea57593366cb39134d64430bb09aaa8a1ff510a8e052f6c0`;
+  the prior v2 sound/time/whisper tests also remain green.
+- Directly projecting Behold episode `000002` exercised three requested actions
+  and seven requested observation events with zero unsupported input, outcome,
+  or requested-event diagnostics.
+- `pnpm verify` passed: 22 files, 168 tests, typecheck, path guard, examples,
+  and the physical package behavior check.
+- Immutable workshop artifact `deepfates-lync-0.4.2.tgz`, SHA-256
+  `c83b01766b73656a334d49b28e54056472e2b171a981560ded642524fed3aba8`,
+  was separately extracted and exercised for verified material presentation and
+  coordinate withholding. No publication, tag, push, or release was performed.

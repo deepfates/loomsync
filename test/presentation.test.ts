@@ -38,6 +38,16 @@ function presented(body: LyncEventBody, profile?: string) {
   return result.presentation;
 }
 
+async function canonicalV2Turn(): Promise<LyncEventBody> {
+  const fixture = await readFile(
+    fileURLToPath(new URL("./fixtures/presentation/oxford-cedar-human-semantic-v2.lync", import.meta.url)),
+  );
+  const parsed = parseLyncFiles([{ file: "oxford-v2.lync", bytes: fixture }]);
+  const turn = parsed.lines.flatMap((line) => line.event ? [line.event] : [])[1];
+  if (!turn) throw new Error("expected canonical v2 fixture turn");
+  return structuredClone(turn);
+}
+
 describe("Lync presentation contract", () => {
   it("projects only the declared generic message paths and retains source identity", () => {
     const body = event("claude/assistant", {
@@ -214,6 +224,224 @@ describe("Lync presentation contract", () => {
     expect(turn.diagnostics.some((item) => item.code === "unsupported_observation_event")).toBe(false);
     expect(turn.diagnostics.some((item) => item.code === "unsupported_action_input")).toBe(false);
     expect(turn.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
+  });
+
+  it("presents a focused attack failure and its observed action_failed event", async () => {
+    const body = await canonicalV2Turn();
+    const turn = (body.payload as any).payload;
+    turn.action = {
+      id: "llm-attack",
+      name: "attack_focused_entity",
+      input: {},
+      kind: "exclusive",
+      toolCallId: "mind-attack",
+      source: "llm",
+    };
+    turn.outcome = {
+      ok: false,
+      eventType: "action_failed",
+      result: { ok: false, error: "admitted_reachable_entity_focus_unavailable" },
+      error: "admitted_reachable_entity_focus_unavailable",
+    };
+    turn.nextObservation.events = [{
+      sequence: 27,
+      type: "action_failed",
+      salience: "high",
+      source: "event",
+      isNew: true,
+      data: {
+        intent: {
+          source: "llm",
+          tool: "attack_focused_entity",
+          input: {},
+          observationSequence: 20,
+          enqueuedAt: 1785564840633,
+        },
+        authorization: { ok: true },
+        result: { ok: false, error: "admitted_reachable_entity_focus_unavailable" },
+        error: "admitted_reachable_entity_focus_unavailable",
+      },
+    }];
+
+    const projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("attempted one attack at the focused entity");
+    expect(projection.text).toContain("Body report: admitted reachable entity focus unavailable.");
+    expect(projection.text).toContain("Action failed: attack focused entity (admitted reachable entity focus unavailable).");
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_action_input")).toBe(false);
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_observation_event")).toBe(false);
+
+    turn.outcome = {
+      ok: true,
+      eventType: "action_completed",
+      result: {
+        ok: true,
+        status: "attack_input_dispatched",
+        target: { id: "private-target", position: { x: 1977, y: -47, z: 1419 } },
+        confirmation: "mineflayer:single_attack_input",
+      },
+    };
+    turn.nextObservation.events = [];
+    const success = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(success.text).toContain(
+      "Body confirmation: attack input dispatched (mineflayer:single_attack_input).",
+    );
+    expect(success.text).not.toContain("private-target");
+    expect(success.text).not.toContain("1977");
+    expect(success.diagnostics).toContainEqual({
+      code: "source_only_outcome_field",
+      sourcePath: "payload.payload.outcome.result.target",
+    });
+  });
+
+  it("presents verified focused digging and visible material consequences without coordinates", async () => {
+    const body = await canonicalV2Turn();
+    const turn = (body.payload as any).payload;
+    turn.action = {
+      id: "llm-dig",
+      name: "dig_focused_block",
+      input: {},
+      kind: "exclusive",
+      toolCallId: "mind-dig",
+      source: "llm",
+    };
+    turn.outcome = {
+      ok: true,
+      eventType: "action_completed",
+      result: {
+        ok: true,
+        changes: [{
+          verb: "dig",
+          position: { x: 1977, y: -47, z: 1419 },
+          before: "mud_bricks",
+          after: "air",
+          verified: true,
+          observed: true,
+          confirmation: {
+            source: "mineflayer:blockUpdate",
+            observedAt: 1785564959120,
+            dimension: "overworld",
+            position: { x: 1977, y: -47, z: 1419 },
+            before: { name: "mud_bricks", stateId: 6775 },
+            after: { name: "air", stateId: 0 },
+            beforeStateId: 6775,
+            afterStateId: 0,
+          },
+        }],
+        navigation: null,
+        adjacentBlocks: [{ name: "mud_bricks", position: { x: 1977, y: -46, z: 1419 } }],
+        openedBodyPassages: [],
+      },
+    };
+    turn.nextObservation.events = [{
+      sequence: 5,
+      type: "visible_block_changed",
+      salience: "normal",
+      source: "vision",
+      isNew: true,
+      data: { before: "mud_bricks", after: "air" },
+    }];
+
+    const projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("attempted to dig the focused block");
+    expect(projection.text).toContain(
+      "Change evidence: dig mud bricks → air; verified yes; observed yes; confirmation mineflayer:blockUpdate.",
+    );
+    expect(projection.text).toContain("Visible block changed: mud bricks → air.");
+    expect(projection.text).not.toContain("1977");
+    expect(projection.text).not.toContain("6775");
+    expect(projection.diagnostics).toContainEqual({
+      code: "source_only_outcome_field",
+      sourcePath: "payload.payload.outcome.result.changes[0].position",
+    });
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_observation_event")).toBe(false);
+  });
+
+  it("presents an interrupted dig attempt and public lifecycle events without controller internals", async () => {
+    const body = await canonicalV2Turn();
+    const turn = (body.payload as any).payload;
+    turn.action = {
+      id: "llm-dig-interrupted",
+      name: "dig_focused_block",
+      input: {},
+      kind: "exclusive",
+      toolCallId: "mind-dig-interrupted",
+      source: "llm",
+    };
+    turn.outcome = {
+      ok: false,
+      eventType: "action_failed",
+      result: {
+        ok: false,
+        error: "interrupted_by_human",
+        cancellation: { acknowledged: true, adapter: "mineflayer-digging" },
+        commandError: "Digging aborted",
+        attemptedChanges: [{
+          verb: "dig",
+          position: { x: 1977, y: -47, z: 1419 },
+          before: "mud_bricks",
+          after: "mud_bricks",
+          verified: false,
+          observed: false,
+          confirmation: null,
+        }],
+        sideEffectObserved: false,
+        navigation: null,
+      },
+      error: "interrupted_by_human",
+      cancellation: {
+        requested: true,
+        reason: "controller_stdin_closed",
+        acknowledged: true,
+        adapter: "mineflayer-digging",
+      },
+    };
+    const intent = {
+      source: "llm",
+      tool: "dig_focused_block",
+      input: {},
+      observationSequence: 37,
+      enqueuedAt: 1785564863939,
+    };
+    turn.nextObservation.events = [
+      {
+        sequence: 44,
+        type: "controller_suspended",
+        salience: "normal",
+        source: "event",
+        isNew: true,
+        data: { reason: "controller_stdin_closed", activeIntent: intent },
+      },
+      {
+        sequence: 45,
+        type: "cancellation_requested",
+        salience: "normal",
+        source: "event",
+        isNew: true,
+        data: {
+          intent,
+          requestedBy: { source: "system", tool: "shutdown" },
+          reason: "controller_stdin_closed",
+        },
+      },
+    ];
+
+    const projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("Body report: interrupted by human.");
+    expect(projection.text).toContain(
+      "Attempted change: dig mud bricks → mud bricks; verified no; observed no; confirmation none.",
+    );
+    expect(projection.text).toContain("Controller suspended (controller stdin closed) during dig focused block.");
+    expect(projection.text).toContain(
+      "Cancellation requested for dig focused block by system shutdown (controller stdin closed).",
+    );
+    expect(projection.text).not.toContain("Digging aborted");
+    expect(projection.text).not.toContain("1785564863939");
+    expect(projection.text).not.toContain("1977");
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_action_input")).toBe(false);
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_observation_event")).toBe(false);
   });
 
   it("makes an exact claimed profile fail closed instead of using generic bait", () => {

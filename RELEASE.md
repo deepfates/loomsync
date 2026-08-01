@@ -1,7 +1,7 @@
-# Lync 0.4.1 release candidate
+# Lync 0.4.2 release candidate
 
-Lync 0.4.1 is prepared but not yet published. npm still serves 0.3.0; do not
-tag 0.4.1 or describe it as registry-available until the owner-authorized
+Lync 0.4.2 is prepared but not yet published. npm still serves 0.3.0; do not
+tag 0.4.2 or describe it as registry-available until the owner-authorized
 publication step succeeds.
 
 The durable format contract did not change. Both 0.3 and 0.4 read and write the
@@ -11,6 +11,8 @@ the normative `FORMAT.md` and pacts in the tarball, structured public error
 diagnostics, a loss-free trial artifact, and the additive Behold inhabitant v2
 presentation profile. `prepack` rebuilds `dist`, and the package check extracts
 and executes the physical tarball rather than trusting workspace resolution.
+The v2 profile also presents Behold's safe focused attack/dig evidence and
+ordinary failure, suspension, cancellation, and visible-block-change events.
 
 Runtime boundaries:
 

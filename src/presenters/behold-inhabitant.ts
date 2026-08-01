@@ -364,6 +364,23 @@ function presentObservation(
           ? [`Time passed: ${elapsedMs} ms.`]
           : unsupportedObservationEvent(`${sourcePath}.events[${index}]`, diagnostics);
       }
+      if (
+        profile.version === 2 &&
+        [
+          "action_failed",
+          "controller_suspended",
+          "cancellation_requested",
+          "visible_block_changed",
+        ].includes(type ?? "")
+      ) {
+        return presentResidentLifecycleEvent(
+          type ?? "",
+          event,
+          data,
+          `${sourcePath}.events[${index}]`,
+          diagnostics,
+        );
+      }
       diagnostics.push({
         code: "unsupported_observation_event",
         sourcePath: `${sourcePath}.events[${index}]`,
@@ -451,6 +468,32 @@ function presentAction(
     const reason = stringField(input, "reason");
     description = `${entityId} waited for another event${reason ? `: ${reason}` : "."}`;
     if (reason) paths.push("payload.payload.action.input.reason");
+  } else if (
+    profile.version === 2 &&
+    ["attack_focused_entity", "dig_focused_block"].includes(name)
+  ) {
+    diagnoseSourceOnlyFields(
+      action,
+      new Set(["id", "name", "input", "kind", "toolCallId", "source"]),
+      "payload.payload.action",
+      diagnostics,
+      new Set(),
+      "source_only_action_field",
+    );
+    diagnoseSourceOnlyFields(
+      input,
+      new Set(),
+      "payload.payload.action.input",
+      diagnostics,
+      new Set(),
+      "source_only_action_input_field",
+    );
+    if (input) {
+      description =
+        name === "attack_focused_entity"
+          ? `${entityId} attempted one attack at the focused entity.`
+          : `${entityId} attempted to dig the focused block.`;
+    }
   } else if (profile.version === 2 && name === "whisper") {
     diagnoseSourceOnlyFields(
       action,
@@ -564,6 +607,27 @@ function presentOutcome(
         "payload.payload.outcome.result.error",
       );
     }
+  } else if (
+    profile.version === 2 &&
+    result &&
+    ["attack_focused_entity", "dig_focused_block"].includes(actionName)
+  ) {
+    diagnoseSourceOnlyFields(
+      outcome,
+      new Set(["ok", "eventType", "result", "error", "cancellation"]),
+      "payload.payload.outcome",
+      diagnostics,
+      new Set(["error", "cancellation"]),
+      "source_only_outcome_field",
+    );
+    const focused = presentFocusedActionResult(
+      actionName,
+      result,
+      paths,
+      diagnostics,
+    );
+    detail = focused.detail;
+    v2ShownResultKeys = focused.shownResultKeys;
   }
   if (result && detail === null) {
     diagnostics.push({
@@ -595,6 +659,264 @@ function presentOutcome(
     text: `${actionName} ${terminal} (${eventType}).${detail ?? ""}`,
     sourcePaths: paths,
   };
+}
+
+function presentResidentLifecycleEvent(
+  type: string,
+  event: Record<string, unknown> | null,
+  data: Record<string, unknown> | null,
+  eventPath: string,
+  diagnostics: LyncPresentationDiagnostic[],
+): string[] {
+  diagnoseObservationEventEnvelope(event, eventPath, diagnostics);
+  if (type === "visible_block_changed") {
+    diagnoseSourceOnlyFields(
+      data,
+      new Set(["before", "after"]),
+      `${eventPath}.data`,
+      diagnostics,
+    );
+    const before = stringField(data, "before")?.trim();
+    const after = stringField(data, "after")?.trim();
+    return before && after
+      ? [`Visible block changed: ${humanize(before)} → ${humanize(after)}.`]
+      : unsupportedObservationEvent(eventPath, diagnostics);
+  }
+
+  if (type === "action_failed") {
+    diagnoseSourceOnlyFields(
+      data,
+      new Set([
+        "intent",
+        "authorization",
+        "result",
+        "error",
+        "cancellation",
+        "failureKind",
+      ]),
+      `${eventPath}.data`,
+      diagnostics,
+      new Set(["authorization", "result", "cancellation", "failureKind"]),
+    );
+    const intent = recordField(data, "intent");
+    diagnoseIntentFields(intent, `${eventPath}.data.intent`, diagnostics);
+    const tool = stringField(intent, "tool")?.trim();
+    const error = stringField(data, "error")?.trim();
+    if (!error) return unsupportedObservationEvent(eventPath, diagnostics);
+    return [
+      `Action failed${tool ? `: ${humanize(tool)}` : ""} (${humanize(error)}).`,
+    ];
+  }
+
+  if (type === "controller_suspended") {
+    diagnoseSourceOnlyFields(
+      data,
+      new Set(["reason", "activeIntent"]),
+      `${eventPath}.data`,
+      diagnostics,
+    );
+    const activeIntent = recordField(data, "activeIntent");
+    diagnoseIntentFields(activeIntent, `${eventPath}.data.activeIntent`, diagnostics);
+    const reason = stringField(data, "reason")?.trim();
+    const tool = stringField(activeIntent, "tool")?.trim();
+    if (!reason) return unsupportedObservationEvent(eventPath, diagnostics);
+    return [
+      `Controller suspended (${humanize(reason)})${tool ? ` during ${humanize(tool)}` : ""}.`,
+    ];
+  }
+
+  if (type === "cancellation_requested") {
+    diagnoseSourceOnlyFields(
+      data,
+      new Set(["intent", "requestedBy", "reason"]),
+      `${eventPath}.data`,
+      diagnostics,
+    );
+    const intent = recordField(data, "intent");
+    diagnoseIntentFields(intent, `${eventPath}.data.intent`, diagnostics);
+    const requestedBy = recordField(data, "requestedBy");
+    diagnoseSourceOnlyFields(
+      requestedBy,
+      new Set(["source", "tool"]),
+      `${eventPath}.data.requestedBy`,
+      diagnostics,
+    );
+    const tool = stringField(intent, "tool")?.trim();
+    const requesterSource = stringField(requestedBy, "source")?.trim();
+    const requesterTool = stringField(requestedBy, "tool")?.trim();
+    const reason = stringField(data, "reason")?.trim();
+    if (!reason) return unsupportedObservationEvent(eventPath, diagnostics);
+    const requester = [requesterSource, requesterTool]
+      .filter((item): item is string => Boolean(item))
+      .map(humanize)
+      .join(" ");
+    return [
+      `Cancellation requested${tool ? ` for ${humanize(tool)}` : ""}${requester ? ` by ${requester}` : ""} (${humanize(reason)}).`,
+    ];
+  }
+
+  return unsupportedObservationEvent(eventPath, diagnostics);
+}
+
+function diagnoseIntentFields(
+  intent: Record<string, unknown> | null,
+  sourcePath: string,
+  diagnostics: LyncPresentationDiagnostic[],
+): void {
+  diagnoseSourceOnlyFields(
+    intent,
+    new Set(["source", "tool", "input", "observationSequence", "enqueuedAt"]),
+    sourcePath,
+    diagnostics,
+    new Set(["source", "input", "observationSequence", "enqueuedAt"]),
+  );
+}
+
+function presentFocusedActionResult(
+  actionName: string,
+  result: Record<string, unknown>,
+  paths: string[],
+  diagnostics: LyncPresentationDiagnostic[],
+): { detail: string | null; shownResultKeys: Set<string> } {
+  const shownResultKeys = new Set<string>();
+  const details: string[] = [];
+  const resultOk = typeof result.ok === "boolean" ? result.ok : null;
+  if (resultOk !== null) {
+    shownResultKeys.add("ok");
+    paths.push("payload.payload.outcome.result.ok");
+  }
+
+  const error = stringField(result, "error")?.trim();
+  if (error) {
+    shownResultKeys.add("error");
+    paths.push("payload.payload.outcome.result.error");
+    details.push(`Body report: ${humanize(error)}.`);
+  }
+
+  if (actionName === "attack_focused_entity") {
+    const status = stringField(result, "status")?.trim();
+    const confirmation = stringField(result, "confirmation")?.trim();
+    if (resultOk === true && status && confirmation) {
+      shownResultKeys.add("status");
+      shownResultKeys.add("confirmation");
+      paths.push(
+        "payload.payload.outcome.result.status",
+        "payload.payload.outcome.result.confirmation",
+      );
+      details.push(
+        `Body confirmation: ${humanize(status)} (${confirmation}).`,
+      );
+    }
+  } else {
+    const changes = presentMaterialChanges(
+      result,
+      "changes",
+      "Change evidence",
+      paths,
+      diagnostics,
+    );
+    const attempted = presentMaterialChanges(
+      result,
+      "attemptedChanges",
+      "Attempted change",
+      paths,
+      diagnostics,
+    );
+    if (changes.length) shownResultKeys.add("changes");
+    if (attempted.length) shownResultKeys.add("attemptedChanges");
+    details.push(...changes, ...attempted);
+  }
+
+  return {
+    detail: details.length ? ` ${details.join(" ")}` : null,
+    shownResultKeys,
+  };
+}
+
+function presentMaterialChanges(
+  result: Record<string, unknown>,
+  field: "changes" | "attemptedChanges",
+  label: string,
+  paths: string[],
+  diagnostics: LyncPresentationDiagnostic[],
+): string[] {
+  const raw = result[field];
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    diagnostics.push({
+      code: "unsupported_outcome_change",
+      sourcePath: `payload.payload.outcome.result.${field}`,
+    });
+    return [];
+  }
+  return raw.flatMap((item, index) => {
+    const change = recordValue(item);
+    const changePath = `payload.payload.outcome.result.${field}[${index}]`;
+    diagnoseSourceOnlyFields(
+      change,
+      new Set([
+        "verb",
+        "position",
+        "before",
+        "after",
+        "verified",
+        "observed",
+        "confirmation",
+        "context",
+      ]),
+      changePath,
+      diagnostics,
+      new Set(["position", "context"]),
+      "source_only_outcome_field",
+    );
+    const confirmation = recordField(change, "confirmation");
+    diagnoseSourceOnlyFields(
+      confirmation,
+      new Set([
+        "source",
+        "observedAt",
+        "dimension",
+        "position",
+        "before",
+        "after",
+        "beforeStateId",
+        "afterStateId",
+      ]),
+      `${changePath}.confirmation`,
+      diagnostics,
+      new Set([
+        "observedAt",
+        "dimension",
+        "position",
+        "before",
+        "after",
+        "beforeStateId",
+        "afterStateId",
+      ]),
+      "source_only_outcome_field",
+    );
+    const verb = stringField(change, "verb")?.trim();
+    const before = stringField(change, "before")?.trim();
+    const after = stringField(change, "after")?.trim();
+    const verified = typeof change?.verified === "boolean" ? change.verified : null;
+    const observed = typeof change?.observed === "boolean" ? change.observed : null;
+    const confirmationSource = stringField(confirmation, "source")?.trim();
+    if (!verb || !before || !after || verified === null || observed === null) {
+      diagnostics.push({ code: "unsupported_outcome_change", sourcePath: changePath });
+      return [];
+    }
+    paths.push(
+      `${changePath}.verb`,
+      `${changePath}.before`,
+      `${changePath}.after`,
+      `${changePath}.verified`,
+      `${changePath}.observed`,
+    );
+    if (confirmationSource) paths.push(`${changePath}.confirmation.source`);
+    return [
+      `${label}: ${humanize(verb)} ${humanize(before)} → ${humanize(after)}; verified ${verified ? "yes" : "no"}; observed ${observed ? "yes" : "no"}; confirmation ${confirmationSource ?? "none"}.`,
+    ];
+  });
 }
 
 function presentSoundHeard(
