@@ -171,6 +171,14 @@ reconciliation. Turn results include a payload-free canonical locator plus a
 derived chain digest binding the selected root-to-turn prefix. Opening never
 silently adds a missing final LF; append refuses a non-LF-terminated source.
 
+`@deepfates/lync/file-loom-checkpoint` binds an explicit selected tip to exact
+byte prefixes of the complete canonical source set. It records relative source
+names, lengths, and hashes rather than copying history. Verification later
+replays those bounded prefixes through Lync's indexed union and recomputes the
+accepted Loom ancestry, depth, body digest, chain digest, and locator. Ordinary
+appends after capture are therefore compatible with an earlier checkpoint;
+mutation or truncation inside a captured prefix fails closed.
+
 For source sets too large to retain twice in a browser, use the re-readable
 indexed union. It applies the same line parser and union rules while retaining
 only source locators, envelope topology, digests, diagnostics, and policy

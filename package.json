@@ -56,6 +56,11 @@
       "import": "./dist/file-loom-cursor.js",
       "default": "./dist/file-loom-cursor.js"
     },
+    "./file-loom-checkpoint": {
+      "types": "./dist/file-loom-checkpoint.d.ts",
+      "import": "./dist/file-loom-checkpoint.js",
+      "default": "./dist/file-loom-checkpoint.js"
+    },
     "./idb-log": {
       "types": "./dist/idb-log.d.ts",
       "import": "./dist/idb-log.js",
