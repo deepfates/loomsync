@@ -226,6 +226,31 @@ describe("Lync presentation contract", () => {
     expect(turn.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
   });
 
+  it("distinguishes received private whispers from public chat in Behold v2", async () => {
+    const body = await canonicalV2Turn();
+    const payload = (body.payload as any).payload;
+    payload.observation.events = [
+      {
+        sequence: 91,
+        type: "chat_received",
+        salience: "high",
+        source: "event",
+        isNew: true,
+        data: {
+          from: "OxfordSedge",
+          text: "Meet me by the arch.",
+          channel: "private",
+          addressed: true,
+        },
+      },
+    ];
+
+    const turn = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+
+    expect(turn.text).toContain("Private whisper from OxfordSedge: Meet me by the arch.");
+    expect(turn.text).not.toContain("Public chat from OxfordSedge");
+  });
+
   it("presents a focused attack failure and its observed action_failed event", async () => {
     const body = await canonicalV2Turn();
     const turn = (body.payload as any).payload;

@@ -339,9 +339,15 @@ function presentObservation(
       if (type === "chat_received") {
         const from = stringField(data, "from");
         const text = stringField(data, "text");
-        return text
-          ? [`Public chat${from ? ` from ${from}` : ""}: ${text}`]
-          : [];
+        if (!text) return [];
+        const channel = profile.version === 2 ? stringField(data, "channel") : null;
+        if (profile.version === 2 && channel === "private") {
+          return [`Private whisper${from ? ` from ${from}` : ""}: ${text}`];
+        }
+        if (profile.version === 2 && channel !== null && channel !== "public") {
+          return unsupportedObservationEvent(`${sourcePath}.events[${index}]`, diagnostics);
+        }
+        return [`Public chat${from ? ` from ${from}` : ""}: ${text}`];
       }
       if (profile.version === 2 && type === "sound_heard") {
         diagnoseObservationEventEnvelope(event, `${sourcePath}.events[${index}]`, diagnostics);
