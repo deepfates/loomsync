@@ -88,11 +88,13 @@ function presentResidentTurn(
 ): LyncPresentation | null {
   const link = recordField(event.payload, "meta");
   const turn = recordField(event.payload, "payload");
+  const turnProtocol = stringField(turn, "protocol");
   if (
     !link ||
     !turn ||
     stringField(link, "protocol") !== "behold.entity-turn-link.v1" ||
-    stringField(turn, "protocol") !== "behold.entity-turn.v1"
+    (turnProtocol !== "behold.entity-turn.v1" &&
+      turnProtocol !== "behold.entity-cognition-turn.v1")
   ) {
     return null;
   }
@@ -120,6 +122,34 @@ function presentResidentTurn(
   );
   if (observation) sections.push(observation);
 
+  if (turnProtocol === "behold.entity-cognition-turn.v1") {
+    if (
+      turn.action !== undefined ||
+      turn.outcome !== undefined ||
+      turn.nextObservation !== undefined ||
+      !isExactNullChoice(turn.utterance)
+    ) {
+      return null;
+    }
+    sections.push({
+      role: "action",
+      text: `${entityId} chose no bodily action.`,
+      sourcePaths: ["payload.payload.utterance.assistant.content"],
+    });
+    return residentPresentation(
+      event,
+      profile,
+      turn,
+      profiles,
+      entityId,
+      sequence,
+      model,
+      "cognition",
+      sections,
+      diagnostics,
+    );
+  }
+
   const utterance = presentUtterance(turn.utterance);
   if (utterance) sections.push(utterance);
 
@@ -135,11 +165,37 @@ function presentResidentTurn(
   );
   if (nextObservation) sections.push(nextObservation);
 
+  return residentPresentation(
+    event,
+    profile,
+    turn,
+    profiles,
+    entityId,
+    sequence,
+    model,
+    "turn",
+    sections,
+    diagnostics,
+  );
+}
+
+function residentPresentation(
+  event: LyncEventBody,
+  profile: BeholdPresentationProfile,
+  turn: Record<string, unknown>,
+  profiles: Record<string, unknown> | null,
+  entityId: string,
+  sequence: number,
+  model: string,
+  eventKind: "turn" | "cognition",
+  sections: LyncPresentationSection[],
+  diagnostics: LyncPresentationDiagnostic[],
+): LyncPresentation {
   const release = recordField(turn, "experimentRelease");
   const releaseId = stringField(release, "releaseId");
   const observedOrder = integerField(release, "residentObservedOrder");
   const structure = [
-    `${entityId} · turn ${sequence}`,
+    `${entityId} · ${eventKind} ${sequence}`,
     `Model: ${model}`,
     `Profiles: ${stringField(profiles, "policy") ?? "unknown"} · ${HUMAN_PROFILE} · ${stringField(profiles, "safety") ?? "unknown"}`,
     releaseId ? `Release: ${releaseId}` : null,
@@ -154,6 +210,25 @@ function presentResidentTurn(
     sections,
     diagnostics,
   };
+}
+
+function isExactNullChoice(value: unknown) {
+  const assistant = recordField(recordValue(value), "assistant");
+  const content = stringField(assistant, "content");
+  if (!content) return false;
+  try {
+    const parsed = JSON.parse(content);
+    const choice = recordValue(parsed);
+    const args = recordField(choice, "arguments");
+    return (
+      Object.keys(choice ?? {}).sort().join(",") === "action,arguments" &&
+      choice?.action === null &&
+      args !== null &&
+      Object.keys(args).length === 0
+    );
+  } catch {
+    return false;
+  }
 }
 
 function presentationSource(event: LyncEventBody) {

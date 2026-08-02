@@ -253,6 +253,34 @@ describe("Lync presentation contract", () => {
     expect(turn.text).not.toContain("Public chat from OxfordSedge");
   });
 
+  it("presents Behold null cognition without inventing an action consequence", async () => {
+    const body = await canonicalV2Turn();
+    const turn = (body.payload as any).payload;
+    turn.protocol = "behold.entity-cognition-turn.v1";
+    turn.id = "OxfordCedar:cognition:7";
+    turn.utterance = {
+      assistant: { role: "assistant", content: '{"action":null,"arguments":{}}' },
+    };
+    delete turn.action;
+    delete turn.outcome;
+    delete turn.nextObservation;
+
+    const projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("OxfordCedar · cognition 7");
+    expect(projection.text).toContain("OxfordCedar chose no bodily action.");
+    expect(projection.text).not.toContain("Minecraft returned");
+    expect(projection.text).not.toContain("unknown outcome");
+    expect(projection.sections.map((section) => section.role)).toEqual([
+      "perception",
+      "action",
+    ]);
+
+    turn.outcome = { ok: true, eventType: "invented", result: {} };
+    expect(
+      presentLyncEvent(body, { loomProfile: BEHOLD_INHABITANT_PROFILE_V2 }).status,
+    ).toBe("unsupported");
+  });
+
   it("presents a focused attack failure and its observed action_failed event", async () => {
     const body = await canonicalV2Turn();
     const turn = (body.payload as any).payload;

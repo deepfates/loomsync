@@ -13,6 +13,10 @@ presentation profile. `prepack` rebuilds `dist`, and the package check extracts
 and executes the physical tarball rather than trusting workspace resolution.
 The v2 profile also presents Behold's safe focused attack/dig evidence and
 ordinary failure, suspension, cancellation, and visible-block-change events.
+Both Behold profiles also present the additive
+`behold.entity-cognition-turn.v1` as admitted perception plus an explicit choice
+of no bodily action, while rejecting any cognition record that invents an
+action, outcome, or terminal observation.
 The browser-safe indexed-union path adds re-readable streaming source scans and
 lazy authenticated event reads without retaining raw corpus bytes or payload
 graphs; existing eager APIs remain unchanged.
