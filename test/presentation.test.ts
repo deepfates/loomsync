@@ -413,6 +413,26 @@ describe("Lync presentation contract", () => {
     expect(projection.diagnostics.some((item) => item.code === "unsupported_observation_event")).toBe(false);
   });
 
+  it("presents held-item placement against focus without claiming success", async () => {
+    const body = await canonicalV2Turn();
+    const turn = (body.payload as any).payload;
+    turn.action = {
+      id: "place-held-1",
+      name: "place_held_against_focus",
+      input: {},
+      kind: "exclusive",
+      toolCallId: "place-held-tool",
+      source: "llm",
+    };
+
+    const projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain(
+      "attempted to place the held item against the focused block",
+    );
+    expect(projection.text).not.toContain("successfully placed");
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_action_input")).toBe(false);
+  });
+
   it("presents an interrupted dig attempt and public lifecycle events without controller internals", async () => {
     const body = await canonicalV2Turn();
     const turn = (body.payload as any).payload;

@@ -1,6 +1,6 @@
 ---
 id: lyn-gisl
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-08-02T11:07:41Z
@@ -21,3 +21,9 @@ Add the smallest v2 action presenter for place_held_against_focus. Describe only
 
 The two exact episode-000019 source turns project without unsupported_action_input and say only that Sedge attempted to place the held item against the focused block. Existing Behold presentation tests remain unchanged, a focused empty-input regression passes, and the full Lync check passes. Textile may vendor the resulting candidate through its existing provenance workflow; no publication is required.
 
+
+## Notes
+
+**2026-08-02T11:14:58Z**
+
+Implemented the minimal v2 presenter for empty-input place_held_against_focus without inferring inventory or success. Focused 30-test presenter suite and full pnpm verify pass: 25 files, 208 tests, typecheck, README examples, and packed artifact. Textile candidate update and exact episode import remain downstream integration work.

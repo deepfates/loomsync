@@ -568,7 +568,12 @@ function presentAction(
     if (reason) paths.push("payload.payload.action.input.reason");
   } else if (
     profile.version === 2 &&
-    ["attack_focused_entity", "dig_focused_block", "use_focused_block"].includes(name)
+    [
+      "attack_focused_entity",
+      "dig_focused_block",
+      "place_held_against_focus",
+      "use_focused_block",
+    ].includes(name)
   ) {
     diagnoseSourceOnlyFields(
       action,
@@ -592,6 +597,8 @@ function presentAction(
           ? `${entityId} attempted one attack at the focused entity.`
           : name === "dig_focused_block"
             ? `${entityId} attempted to dig the focused block.`
+            : name === "place_held_against_focus"
+              ? `${entityId} attempted to place the held item against the focused block.`
             : `${entityId} attempted to use the focused block.`;
     }
   } else if (profile.version === 2 && name === "inspect_focused_container") {
