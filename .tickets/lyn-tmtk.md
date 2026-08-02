@@ -1,6 +1,6 @@
 ---
 id: lyn-tmtk
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-08-02T10:12:39Z
@@ -28,3 +28,7 @@ Implemented profile-aware cognition presentation and focused tests locally. Pend
 **2026-08-02T10:13:43Z**
 
 Full pnpm verify passes: 207 tests, typecheck, examples, and physical packed-artifact check. Existing v1 action projection hash remains pinned by the suite. Ready for exact Textile vendor consumption.
+
+**2026-08-02T10:16:36Z**
+
+Textile consumed the exact packed candidate and committed shared-reader coverage at 173cdbc; its full verify passes 228 tests plus one opt-in scale skip, lint, and production builds.
