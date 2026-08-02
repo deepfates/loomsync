@@ -195,7 +195,9 @@ describe("Lync presentation contract", () => {
     expect(turn.contract).toBe("org.behold.presentation.inhabitant-turn.v2");
     expect(turn.text).toContain("Heard block.stone_pressure_plate.click_on (nearby, right).");
     expect(turn.text).toContain("OxfordCedar whispered to Birch: Hello quietly.");
-    expect(turn.text).toContain("Minecraft confirmed the private whisper: Hello quietly.");
+    expect(turn.text).toContain(
+      "The private whisper input was submitted; recipient delivery was not independently confirmed here.",
+    );
     expect(turn.text).toContain("Heard 2 sounds: 2 × block.stone_pressure_plate.click_on (nearby, right).");
     expect(turn.text).toContain("Time passed: 32016 ms.");
     expect(turn.text).not.toContain("must-not-appear");
@@ -467,6 +469,290 @@ describe("Lync presentation contract", () => {
     expect(projection.diagnostics.some((item) => item.code === "unsupported_action_input")).toBe(false);
     expect(projection.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
     expect(projection.diagnostics.some((item) => item.code === "unsupported_observation_event")).toBe(false);
+  });
+
+  it("presents bounded experience pressure and witnessed death without hidden references", async () => {
+    const body = await canonicalV2Turn();
+    const turn = (body.payload as any).payload;
+    turn.observation.events = [{
+      sequence: 51,
+      type: "experience_pressure_sequence",
+      salience: "urgent",
+      source: "event",
+      isNew: true,
+      data: {
+        compaction: "behold.experience-pressure-sequence.v1",
+        fromSequence: 17,
+        throughSequence: 51,
+        eventCount: 6,
+        eventTypeCounts: {
+          sound_heard: 2,
+          self_hurt: 1,
+          condition_changed: 2,
+          entity_left_view: 1,
+        },
+        sounds: {
+          entries: [{
+            sound: "entity.skeleton.shoot",
+            distanceBand: "distant",
+            relativeDirection: "behind",
+            count: 2,
+          }],
+          distinctPatterns: 1,
+          omittedDistinctPatterns: 0,
+        },
+        condition: {
+          changes: 2,
+          latest: { health: 17, food: 20, oxygen: null },
+          minimumHealth: 15,
+        },
+        entities: {
+          entries: [{
+            id: "hidden-entity-id",
+            name: "Arrow",
+            kind: "projectile",
+            becameVisible: 0,
+            leftView: 1,
+            hurt: 0,
+            latestRelation: {
+              proximity: "nearby",
+              relativeDirection: "behind",
+              lastSeenDistance: 11.5,
+              observationPhase: "live_world",
+              transition: "entity_left_view",
+            },
+          }],
+          distinctEntities: 1,
+          omittedDistinctEntities: 0,
+        },
+      },
+    }];
+    turn.nextObservation.events = [{
+      sequence: 52,
+      type: "visible_entity_died",
+      salience: "high",
+      source: "vision",
+      isNew: true,
+      data: { name: "Zombie", kind: "zombie", proximity: "nearby" },
+    }];
+
+    const projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("6 lived events across body sequences 17–51");
+    expect(projection.text).toContain("2 × entity.skeleton.shoot (distant, behind)");
+    expect(projection.text).toContain("minimum health 15");
+    expect(projection.text).toContain("Zombie was seen die (zombie, nearby)");
+    expect(projection.text).not.toContain("hidden-entity-id");
+    expect(projection.text).not.toContain("11.5");
+    expect(projection.diagnostics).toEqual(expect.arrayContaining([
+      {
+        code: "source_only_observation_event_field",
+        sourcePath: "payload.payload.observation.events[0].data.entities.entries[0].id",
+      },
+      {
+        code: "source_only_observation_event_field",
+        sourcePath: "payload.payload.observation.events[0].data.entities.entries[0].latestRelation.lastSeenDistance",
+      },
+    ]));
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_observation_event")).toBe(false);
+  });
+
+  it("presents resident recall and body-life invalidation without locator or timing internals", async () => {
+    const body = await canonicalV2Turn();
+    const turn = (body.payload as any).payload;
+    turn.action = {
+      id: "recall-1",
+      name: "read_private_life",
+      input: { startSequence: 185, endSequence: 187 },
+      kind: "exclusive",
+      toolCallId: "recall-tool",
+      source: "llm",
+    };
+    turn.outcome = {
+      ok: true,
+      eventType: "private_life_page_returned",
+      result: {
+        protocol: "behold.resident-private-life-page.v1",
+        returned: { startSequence: 185, endSequence: 187 },
+        messageCount: 9,
+        complete: true,
+        nextSequence: null,
+        messagesSha256: "private-digest",
+        selectedTip: { turnId: "private-tip" },
+      },
+    };
+
+    let projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("consulted their own canonical life, requesting turns 185–187");
+    expect(projection.text).toContain("private life returned turns 185–187 (9 messages; complete)");
+    expect(projection.text).not.toContain("private-digest");
+    expect(projection.text).not.toContain("private-tip");
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_action_input")).toBe(false);
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
+
+    turn.action = {
+      id: "move-1",
+      name: "move_controls",
+      input: { direction: "forward", durationMs: 1000 },
+      kind: "exclusive",
+      toolCallId: "move-tool",
+      source: "llm",
+    };
+    turn.outcome = {
+      ok: false,
+      eventType: "intent_blocked",
+      result: {
+        ok: false,
+        error: "decision_invalidated_by_world",
+        reason: "body_life_boundary_changed",
+        afterSequence: 48,
+        observedThroughSequence: 55,
+        missingBeforeOldest: 0,
+        invalidatingEvents: [
+          { sequence: 52, at: 1785655811052, type: "died" },
+          { sequence: 54, at: 1785655811086, type: "spawned" },
+        ],
+      },
+    };
+    projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("death and respawn crossed a life boundary");
+    expect(projection.text).not.toContain("1785655811052");
+    expect(projection.diagnostics).toContainEqual({
+      code: "source_only_outcome_field",
+      sourcePath: "payload.payload.outcome.result.invalidatingEvents[0].at",
+    });
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
+
+    turn.outcome.result = {
+      ok: false,
+      error: "decision_invalidated_by_world",
+      reason: "observation_gap_after_decision",
+      afterSequence: 371,
+      observedThroughSequence: 433,
+      missingBeforeOldest: 22,
+      invalidatingEvents: [],
+    };
+    projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("22 earlier body events became unavailable after the decision");
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
+  });
+
+  it("presents coordinate-free body transitions and fails closed on inconsistent receipts", async () => {
+    const body = await canonicalV2Turn();
+    const turn = (body.payload as any).payload;
+    turn.action = {
+      id: "move-transition",
+      name: "move_controls",
+      input: { direction: "forward", durationMs: 1000 },
+      kind: "exclusive",
+      toolCallId: "move-transition-tool",
+      source: "llm",
+    };
+    turn.outcome = {
+      ok: true,
+      eventType: "action_completed",
+      result: {
+        ok: true,
+        bodyMoved: true,
+        bodyTransition: {
+          protocol: "behold.body-transition.v1",
+          observation: "motion_observed_during_control_interval_cause_unknown",
+          frame: "egocentric_at_control_start",
+          units: { distance: "blocks", angle: "radians" },
+          requestedAxisProgress: 0.82,
+          lateralDisplacement: 0.1,
+          verticalDisplacement: 0,
+          netDistance: 0.83,
+          pathDistance: 0.91,
+          maxExcursion: 0.84,
+          yawDelta: 0.03,
+          pitchDelta: 0,
+          sampleCount: 8,
+          startPosition: { x: 1977, y: -47, z: 1419 },
+        },
+      },
+    };
+
+    let projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("Motion was observed during the control interval; cause unknown");
+    expect(projection.text).toContain("requested-axis +0.82 blocks, lateral +0.1, vertical +0");
+    expect(projection.text).toContain("yaw Δ+0.03 rad, pitch Δ+0 rad; 8 samples");
+    expect(projection.text).not.toContain("1977");
+    expect(projection.diagnostics).toContainEqual({
+      code: "source_only_outcome_field",
+      sourcePath: "payload.payload.outcome.result.bodyTransition.startPosition",
+    });
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
+
+    turn.outcome.result.bodyTransition.netDistance = 0.08;
+    projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).not.toContain("Motion was observed during the control interval");
+    expect(projection.diagnostics).toContainEqual({
+      code: "inconsistent_body_transition",
+      sourcePath: "payload.payload.outcome.result",
+    });
+    expect(projection.diagnostics).toContainEqual({
+      code: "unsupported_outcome_result",
+      sourcePath: "payload.payload.outcome.result",
+    });
+
+    turn.outcome.result.bodyMoved = false;
+    turn.outcome.result.bodyTransition.units.distance = "meters";
+    projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).not.toContain("Motion was observed during the control interval");
+    expect(projection.diagnostics).toContainEqual({
+      code: "unsupported_body_transition",
+      sourcePath: "payload.payload.outcome.result.bodyTransition",
+    });
+
+    delete turn.outcome.result.bodyTransition;
+    turn.outcome.result.bodyMoved = true;
+    projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("The body moved.");
+  });
+
+  it("presents focused use, container inspection, and stop without claiming world consequences", async () => {
+    const body = await canonicalV2Turn();
+    const turn = (body.payload as any).payload;
+    turn.action = {
+      id: "use-1",
+      name: "use_focused_block",
+      input: {},
+      kind: "exclusive",
+      toolCallId: "use-tool",
+      source: "llm",
+    };
+    turn.outcome = {
+      ok: true,
+      eventType: "action_completed",
+      result: {
+        ok: true,
+        status: "use_input_dispatched",
+        target: { id: "private-target", name: "note_block", position: { x: 1, y: 2, z: 3 } },
+        confirmation: "mineflayer:single_activate_block_input",
+      },
+    };
+    let projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("attempted to use the focused block");
+    expect(projection.text).toContain("no resulting world change is confirmed here");
+    expect(projection.text).not.toContain("private-target");
+    expect(projection.diagnostics.some((item) => item.code === "unsupported_outcome_result")).toBe(false);
+
+    turn.action.name = "inspect_focused_container";
+    turn.outcome = {
+      ok: false,
+      eventType: "action_failed",
+      result: { ok: false, error: "focused_block_is_not_container" },
+    };
+    projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("attempted to inspect the focused container");
+    expect(projection.text).toContain("bodily attempt failed: focused block is not container");
+
+    turn.action.name = "stop";
+    turn.outcome = { ok: true, eventType: "action_completed", result: { ok: true } };
+    projection = presented(body, BEHOLD_INHABITANT_PROFILE_V2);
+    expect(projection.text).toContain("released the body's movement controls");
+    expect(projection.text).toContain("confirmed its movement controls were released");
+    expect(projection.diagnostics.some((item) => item.code.startsWith("unsupported_"))).toBe(false);
   });
 
   it("makes an exact claimed profile fail closed instead of using generic bait", () => {
