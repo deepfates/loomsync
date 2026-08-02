@@ -1,6 +1,6 @@
 ---
 id: lyn-cnew
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-08-01T23:52:19Z
@@ -47,3 +47,17 @@ typecheck, README examples, path guard, and physical packed-artifact checks
 pass. Keep this ticket in progress until Textile removes its local overlay and
 an adversarial consumer parity check confirms the freshly packed presenter;
 no package was published.
+
+**2026-08-02T08:25:42Z**
+
+Downstream parity is complete at clean Textile commit
+`2d87e285eaf4c70cde615e26aead8855f0d3c1ed`. Textile consumes the exact packed
+candidate from Lync `6e0734d` (SHA-256
+`90a6a551f4bbc709192d06cec71d4df26ce4e6554add90c7407900bdca250f91`)
+through `@deepfates/lync/presentation` and removed its tracked local Behold
+presenter overlay. Its existing exact-prose and fail-closed presentation tests
+remain green. Adversarial projection of Behold episode 000014 presented all 692
+source events (690 readable turns and two roots) with zero unsupported,
+unclaimed, or nonconforming events and without retaining source bytes or private
+payload objects. Textile's full gate passed 225 tests with one opt-in scale test
+skipped, plus lint and both production builds. No package was published.
