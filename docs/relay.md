@@ -122,7 +122,7 @@ await server.close();
 ```
 
 Port `0` selects a free port. `close()` stops intake, closes sockets, and
-retries pending durable writes before resolving.
+retries pending file appends before resolving.
 
 ## Attach to an existing HTTP server
 
@@ -165,18 +165,20 @@ room reports:
 | `generation` | Fresh identifier for this recovered in-memory log generation |
 | `seq` | Per-generation arrival/replay counter; not causal order |
 | `subscribers` | Current subscribed socket count |
-| `pendingUnpersisted` | Accepted and broadcast lines still awaiting disk persistence |
+| `pendingUnpersisted` | Accepted and broadcast lines whose file append has not completed |
 
-Healthy durable operation has `pendingUnpersisted: 0`. Reading status does not
-open rooms or retry writes. Export the snapshot into the host application's
-existing health/metrics system if monitoring is required; the package does not
-ship a metrics endpoint.
+`pendingUnpersisted: 0` means every accepted append completed at the operating
+system's file interface. The relay does not `fsync` its files or directory, so
+this is not a host-crash or power-loss durability guarantee; ordinary process
+restart recovery is exercised. Reading status does not open rooms or retry
+writes. Export the snapshot into the host application's existing health/metrics
+system if monitoring is required; the package does not ship a metrics endpoint.
 
 A primary-file append failure is broadcast as `persist-failed`, leaves the
 line visible in memory, and increments `pendingUnpersisted`. The next duplicate
 push or room append retries pending lines in order. `close()` also retries and
 rejects with the affected room/id when accepted bytes still cannot be made
-durable. Treat a rejection as an incomplete shutdown requiring operator
+file-complete. Treat a rejection as an incomplete shutdown requiring operator
 attention; do not report the relay as durably drained.
 
 A conflict-sidecar write failure is surfaced as `conflict-persist-failed`; an

@@ -70,7 +70,10 @@ The relay accepts and broadcasts canonical line strings, but a disk failure can
 temporarily leave an accepted room line in memory. `status()` exposes that lag
 as `pendingUnpersisted`. The next duplicate push, a later append, or `close()`
 retries pending lines in order. `close()` rejects if accepted lines still
-cannot be made durable.
+cannot complete their file append. The relay does not `fsync` those files or
+their directory: a zero pending count supports ordinary process-restart
+recovery, not a host-crash or power-loss durability guarantee. The Node file
+store has the stronger synced-write boundary described in the library guide.
 
 File order is never causal order. Relay `seq` is only a replay cursor within a
 single recovered room generation. Clients reset a cursor and re-union from
