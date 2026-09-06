@@ -11,45 +11,76 @@ still serves 0.3.0; confirm package availability before deployment.
 ## Runtime and dependency
 
 Run the relay on Node 19 or newer. The package has zero declared runtime
-dependencies, so an operator must install `ws` beside the server:
+dependencies, but an operator must provide `ws` beside the server. Because npm
+still serves 0.3.0, use the reviewed 0.4.3 source for this guide's local path:
 
 ```bash
-npm install @deepfates/lync ws
+pnpm install --frozen-lockfile
+pnpm build
 ```
 
 `ws` is acquired only when a relay is constructed. Browser-safe package paths
 do not load it. When bundling a server, keep `ws` external because the relay
-loads it dynamically.
+loads it dynamically. Before 0.4.3 is published, an external operator can run
+`pnpm pack` in the reviewed source checkout and explicitly install that physical
+tarball plus `ws`; an unqualified registry install is not evidence for this API.
 
-## Standalone command
+## Loopback CLI exercise
 
-<!-- example: fragment — long-running server stopped by a signal -->
+The standalone `lync serve` command cannot select a listen host. For a genuinely
+local exercise, attach the relay to an HTTP server that binds loopback. From the
+built source checkout, run this in one terminal:
+
+<!-- example: fragment — long-running loopback server stopped by a signal -->
 ```bash
-lync serve ./rooms --port 8787
+node --input-type=module <<'EOF'
+import { createServer } from "node:http";
+import { attachLyncServer } from "./dist/relay/index.js";
+
+const httpServer = createServer((_request, response) => response.writeHead(404).end());
+const relay = attachLyncServer(httpServer, { storageDir: "./rooms", path: "/lync" });
+const close = async () => {
+  await relay.close();
+  httpServer.close();
+};
+process.once("SIGINT", () => void close());
+process.once("SIGTERM", () => void close());
+httpServer.listen(8787, "127.0.0.1", () => {
+  console.log("relay on ws://127.0.0.1:8787/lync");
+});
+EOF
 ```
 
-The command creates `./rooms` if needed, listens on plain HTTP/WebSocket, and
-runs until SIGINT or SIGTERM. It listens on all network interfaces. The
-tokenless command above is only for an isolated local development environment
-whose network policy rejects external ingress; do not run it on an externally
-reachable host. `--token` is optional; when present, every upgrade must send
-`Authorization: Bearer <token>`. The standalone server does not provide TLS,
-token rotation, rate limits, or account management. Put it behind
-infrastructure that owns those concerns when they are required.
+In another terminal at the same checkout, create and converge a local file:
 
-A client converges a local file with a room as follows:
-
-<!-- example: fragment — requires the long-running relay above -->
+<!-- example: fragment — requires the loopback server above -->
 ```bash
-lync sync story.lync ws://localhost:8787 --root story
-lync sync story.lync ws://localhost:8787 --root story --follow
+printf '%s\n' '{"kind":"notes/text","author":{"actor":"you"},"payload":{"text":"kept locally"}}' | node bin/lync.js append story.lync
+node bin/lync.js sync story.lync ws://127.0.0.1:8787/lync --root story
+node bin/lync.js sync story.lync ws://127.0.0.1:8787/lync --root story --follow
 ```
 
 `lync sync` needs Node 21 because the CLI uses Node's built-in WebSocket. See
-the [CLI guide](./cli.md) for cursor and local-file recovery behavior. The
-current CLI cannot add an `Authorization` header, so it cannot connect to a
-relay started with `--token`. Authenticated deployments need a programmatic
-client whose WebSocket implementation supplies the bearer header.
+the [CLI guide](./cli.md) for cursor and local-file recovery behavior.
+
+## Standalone command
+
+`lync serve` listens on all network interfaces. Do not expose it without an
+explicit network boundary, TLS termination, and authentication. The current
+`lync sync` command cannot add an `Authorization` header, so it cannot connect
+to a relay started with `--token`; authenticated deployments need a
+programmatic client whose WebSocket implementation supplies the bearer header.
+For such a client, the protected source-checkout command is:
+
+<!-- example: fragment — all-interface server for an auth-capable client behind TLS -->
+```bash
+node bin/lync.js serve ./rooms --port 8787 --token replace-with-a-secret
+```
+
+The command creates `./rooms` if needed and runs until SIGINT or SIGTERM. Every
+upgrade must send `Authorization: Bearer <token>`. The standalone server does
+not provide TLS, token rotation, rate limits, or account management; the
+deployment around it must own those concerns.
 
 ## Storage layout
 
@@ -72,11 +103,15 @@ disk.
 
 ## Programmatic standalone server
 
+`startLyncServe` also listens on all interfaces. Supply authentication and put
+it behind an appropriate network/TLS boundary; the short-lived API smoke below
+uses an explicit token and closes immediately.
+
 <!-- example: daemon — expect "relay on" -->
 ```ts
 import { startLyncServe } from "@deepfates/lync/relay";
 
-const server = await startLyncServe({ dir: "./rooms", port: 0 });
+const server = await startLyncServe({ dir: "./rooms", port: 0, token: "local-example-only" });
 console.log("relay on", server.port);
 
 for (const room of server.status()) {

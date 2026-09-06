@@ -110,16 +110,15 @@ should call `lyncTranscriptView(result, head, { chooseParent })` from
 
 <!-- example: fragment — requires a long-running relay and follow mode is interactive -->
 ```bash
-lync serve ./rooms --port 8787
-lync sync story.lync ws://localhost:8787
-lync sync story.lync ws://localhost:8787 --follow
+lync sync story.lync ws://127.0.0.1:8787/lync
+lync sync story.lync ws://127.0.0.1:8787/lync --follow
 ```
 
-The tokenless `serve` command is only for an isolated local development
-environment; it listens on all network interfaces and must not be exposed to
-external ingress. The current `lync sync` command cannot send the bearer header
-required by `serve --token`. See [relay operations](./relay.md) for the
-authenticated integration boundary.
+Start the paired loopback-bound server exactly as shown in
+[relay operations](./relay.md). The standalone `lync serve` command listens on
+all interfaces, and the current `lync sync` command cannot send the bearer
+header required by `serve --token`; the relay guide separates those local and
+authenticated integration paths.
 
 `sync` uses Node's built-in WebSocket and therefore needs Node 21 or newer. It
 uses the local file itself as the offline queue: complete local lines are
