@@ -110,6 +110,12 @@ function generatedSource(
     size,
     async *stream() {
       for (let index = 0; index < descriptors.length; index += 1) {
+        // Real re-readable sources yield while awaiting I/O. Keep this
+        // synthetic scale fixture from monopolizing the worker's microtask
+        // queue long enough to starve Vitest control messages.
+        if (index > 0 && index % 128 === 0) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
         const bytes = line(index);
         for (let offset = 0; offset < bytes.byteLength; offset += chunkBytes) {
           yield bytes.subarray(offset, Math.min(bytes.byteLength, offset + chunkBytes));
