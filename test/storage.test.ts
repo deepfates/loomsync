@@ -143,6 +143,77 @@ describe("lync storage backends", () => {
     );
   });
 
+  it("seals a partial failed append before retrying its full event", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-partial-append-"));
+    const store = createFileEventStore(dir);
+    await store.diagnostics();
+    const root = storageEvent("partial-append-root");
+    const line = serializeLyncEvent(root);
+    const canonicalFile = path.join(dir, `${encodeURIComponent(root.id)}.lync`);
+    const originalOpen = fs.open;
+    let injected = false;
+    fs.open = (async (file, flags, mode) => {
+      const handle = await originalOpen(file, flags, mode);
+      if (!injected && String(file).endsWith(".lync") && flags === "a") {
+        injected = true;
+        handle.writeFile = (async (data: string | Uint8Array) => {
+          await handle.write(String(data).slice(0, 10));
+          throw Object.assign(new Error("injected partial ENOSPC"), { code: "ENOSPC" });
+        }) as typeof handle.writeFile;
+      }
+      return handle;
+    }) as typeof fs.open;
+    try {
+      await expect(store.append(root)).rejects.toThrow("injected partial ENOSPC");
+    } finally {
+      fs.open = originalOpen;
+    }
+
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(line.slice(0, 10));
+    await expect(store.append(root)).resolves.toMatchObject({ status: "duplicate" });
+    await expect(store.diagnostics()).resolves.toMatchObject({ pendingPersistence: false });
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(`${line.slice(0, 10)}\n${line}\n`);
+
+    const reopened = createFileEventStore(dir);
+    await expect(reopened.byId(root.id)).resolves.toMatchObject({ body: { id: root.id } });
+    await expect(reopened.diagnostics()).resolves.toMatchObject({ events: 1, garbage: 1 });
+  });
+
+  it("safely replays a complete append whose sync failed", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-failed-sync-"));
+    const store = createFileEventStore(dir);
+    await store.diagnostics();
+    const root = storageEvent("failed-sync-root");
+    const line = serializeLyncEvent(root);
+    const canonicalFile = path.join(dir, `${encodeURIComponent(root.id)}.lync`);
+    const originalOpen = fs.open;
+    let injected = false;
+    fs.open = (async (file, flags, mode) => {
+      const handle = await originalOpen(file, flags, mode);
+      if (!injected && String(file).endsWith(".lync") && flags === "a") {
+        injected = true;
+        handle.sync = async () => {
+          throw Object.assign(new Error("injected sync ENOSPC"), { code: "ENOSPC" });
+        };
+      }
+      return handle;
+    }) as typeof fs.open;
+    try {
+      await expect(store.append(root)).rejects.toThrow("injected sync ENOSPC");
+    } finally {
+      fs.open = originalOpen;
+    }
+
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(`${line}\n`);
+    await expect(store.append(root)).resolves.toMatchObject({ status: "duplicate" });
+    await expect(store.diagnostics()).resolves.toMatchObject({ pendingPersistence: false });
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(`${line}\n${line}\n`);
+
+    const reopened = createFileEventStore(dir);
+    await expect(reopened.byId(root.id)).resolves.toMatchObject({ body: { id: root.id } });
+    await expect(reopened.diagnostics()).resolves.toMatchObject({ events: 1, garbage: 0 });
+  });
+
   it("accepts but permanently surfaces a complete final event that lacked LF", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-no-lf-"));
     const root = storageEvent("no-lf-root");
