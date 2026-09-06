@@ -19,7 +19,7 @@ export type EventBatch = Iterable<LyncEventBody> | AsyncIterable<LyncEventBody>;
 
 export interface EventStore {
   append(ev: LyncEventBody): Promise<AppendResult>;
-  /** Append one causally ordered group with at most one durable store flush. */
+  /** Append a causal group, coalescing an uncontended batch into one durable flush. */
   appendMany?(events: EventBatch): Promise<AppendResult[]>;
   union(line: string): Promise<AppendResult>;
   byId(id: string): Promise<StoredEvent | null>;
