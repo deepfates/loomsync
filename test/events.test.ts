@@ -213,6 +213,19 @@ describe("lync v0 line parser vectors", () => {
     expect(Buffer.from(duplicate?.bytes ?? new Uint8Array()).toString("utf8")).toContain('"\\u0061"');
   });
 
+  it("requires envelope and author fields to be own properties", () => {
+    const inheritedEnvelope =
+      '{"__proto__":{"v":1,"id":"inherited-id","kind":"hostile/event","at":"2026-07-07T00:00:00Z","author":{"actor":"alice"},"parents":[],"payload":{}}}\n';
+    const inheritedAuthor =
+      '{"v":1,"id":"inherited-author","kind":"hostile/event","at":"2026-07-07T00:00:00Z","author":{"__proto__":{"actor":"alice"}},"parents":[],"payload":{}}\n';
+
+    const result = parseLyncFiles([{ file: "prototype.lync", bytes: inheritedEnvelope + inheritedAuthor }]);
+
+    expect(result.lines.map((line) => line.class)).toEqual(["garbage", "garbage"]);
+    expect(result.unionEventIds).toEqual([]);
+    expect(result.viewEligibleIds).toEqual([]);
+  });
+
   it("keeps source filenames in diagnostics", () => {
     const { result } = loadFixture("10-merge-union");
     expect(result.lines.map((line) => basename(line.file))).toEqual([

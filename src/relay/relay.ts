@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
+import { verifiedLyncBodyBytes } from "../events.js";
 import { decodeFrame, encodeFrame, extractLineId, type SyncFrame } from "../sync-protocol.js";
 
 /**
@@ -135,6 +136,8 @@ interface Room {
   unpersisted: Map<string, string>;
   subscribers: Set<LyncRelaySocket>;
   writeChain: Promise<void>;
+  /** An append rejected after possibly writing a prefix; seal its tail before retrying. */
+  damagedTails: Set<string>;
   recoveryNote?: string;
 }
 
@@ -148,6 +151,9 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   // once recovery settles; never read on the write, sync, union, or close path.
   const ready = new Map<string, Room>();
   const sockets = new Set<LyncRelaySocket>();
+  const frameChains = new Map<LyncRelaySocket, Promise<void>>();
+  let closing = false;
+  let transportClose: Promise<void> | undefined;
   const WebSocketServer = acquireWebSocketServer();
   const wss = new WebSocketServer({ noServer: true });
 
@@ -176,19 +182,30 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   }
 
   function handleConnection(socket: LyncRelaySocket): void {
+    if (closing) {
+      socket.terminate();
+      return;
+    }
     sockets.add(socket);
     options.onConnection?.(socket);
     const subscribed = new Set<string>();
     // Frames from one socket are handled strictly in arrival order, so a
     // client that pushes then subscribes sees any errors before its backlog.
     let frameChain = Promise.resolve();
+    frameChains.set(socket, frameChain);
     socket.on("message", (raw) => {
+      if (closing) return;
       const frame = decodeFrame(raw.toString());
       frameChain = frameChain.then(() => handleFrame(socket, subscribed, frame));
+      frameChains.set(socket, frameChain);
     });
     socket.on("close", () => {
       sockets.delete(socket);
       void detach(socket, subscribed);
+      const finalChain = frameChains.get(socket);
+      void finalChain?.finally(() => {
+        if (frameChains.get(socket) === finalChain) frameChains.delete(socket);
+      });
     });
     socket.on("error", (error) => log(`[lync relay] socket error: ${String(error)}`));
   }
@@ -221,7 +238,7 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
           }
           const existing = room.byId.get(id);
           if (existing !== undefined) {
-            if (existing === frame.line) {
+            if (sameVerifiedBody(existing, frame.line)) {
               // Duplicate under union — normally a pure no-op. But if this line
               // is still not on disk (a prior append failed), the re-push is our
               // chance to heal without a restart: retry it (and any earlier
@@ -236,6 +253,14 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
               return;
             }
             const kept = await appendSerialized(room, join(options.dir, `${room.root}.conflicts`), frame.line);
+            if (kept.ok) {
+              // Conflict variants are durable events in the replay stream too:
+              // clients already online and clients arriving later must receive
+              // the same retained bytes, not only an ephemeral error notice.
+              room.lines.push(frame.line);
+              room.seq += 1;
+              broadcast(room, { t: "ev", root: room.root, seq: room.seq, line: frame.line, gen: room.generation });
+            }
             broadcast(room, { t: "err", root: room.root, reason: "same-id-conflict", detail: id }, socket);
             send(socket, { t: "err", root: room.root, reason: "same-id-conflict", detail: id });
             if (!kept.ok) {
@@ -295,29 +320,60 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   }
 
   async function recoverRoom(root: string): Promise<Room> {
-    const room: Room = { root, generation: randomUUID(), seq: 0, lines: [], byId: new Map(), unpersisted: new Map(), subscribers: new Set(), writeChain: Promise.resolve() };
-    const path = join(options.dir, `${root}.lync`);
-    if (!existsSync(path)) return room;
-    const text = await readFile(path, "utf8");
-    const endsClean = text.length === 0 || text.endsWith("\n");
-    const lines = text.split("\n");
-    if (lines.at(-1) === "") lines.pop();
-    if (!endsClean && lines.length > 0) {
-      const tail = lines.at(-1) ?? "";
-      room.recoveryNote = `sealed truncated final line (${tail.length} bytes) as damaged`;
-      log(`[lync relay] ${root}: ${room.recoveryNote}`);
-      await appendFile(path, "\n");
+    const room: Room = { root, generation: randomUUID(), seq: 0, lines: [], byId: new Map(), unpersisted: new Map(), subscribers: new Set(), writeChain: Promise.resolve(), damagedTails: new Set() };
+    const recoveryNotes: string[] = [];
+    for (const [path, label] of [
+      [join(options.dir, `${root}.lync`), "main log"],
+      [join(options.dir, `${root}.conflicts`), "conflict sidecar"],
+    ] as const) {
+      if (!existsSync(path)) continue;
+      const text = await readFile(path, "utf8");
+      const endsClean = text.length === 0 || text.endsWith("\n");
+      const lines = text.split("\n");
+      if (lines.at(-1) === "") lines.pop();
+      if (!endsClean && lines.length > 0) {
+        const tail = lines.at(-1) ?? "";
+        const note = `${label}: sealed truncated final line (${tail.length} bytes) as damaged`;
+        recoveryNotes.push(note);
+        log(`[lync relay] ${root}: ${note}`);
+        await appendFile(path, "\n");
+      }
+      for (const line of lines) {
+        const id = extractLineId(line);
+        // A damaged or sealed-truncated line stays on disk (never eaten) but is
+        // not replayed to subscribers — it isn't a real event.
+        if (id === undefined) continue;
+        room.lines.push(line);
+        room.seq += 1;
+        if (!room.byId.has(id)) room.byId.set(id, line);
+      }
     }
-    for (const line of lines) {
-      const id = extractLineId(line);
-      // A damaged or sealed-truncated line stays on disk (never eaten) but is
-      // not replayed to subscribers — it isn't a real event.
-      if (id === undefined) continue;
-      room.lines.push(line);
-      room.seq += 1;
-      if (!room.byId.has(id)) room.byId.set(id, line);
-    }
+    if (recoveryNotes.length > 0) room.recoveryNote = recoveryNotes.join("; ");
     return room;
+  }
+
+  // Called only within the room's writeChain. appendFile may reject after
+  // writing some bytes: retain them, but never concatenate a later event onto
+  // an unterminated physical line. A failed read/seal leaves the path marked
+  // for another check; no pending event may claim persistence through it.
+  async function appendRecoverably(room: Room, path: string, line: string): Promise<void> {
+    if (room.damagedTails.has(path)) {
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        bytes = Buffer.alloc(0);
+      }
+      if (bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a) await appendFile(path, "\n");
+      room.damagedTails.delete(path);
+    }
+    try {
+      await appendFile(path, `${line}\n`);
+    } catch (error) {
+      room.damagedTails.add(path);
+      throw error;
+    }
   }
 
   // Serialize appends per room. A write failure must never wedge the room or
@@ -327,7 +383,7 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   function appendSerialized(room: Room, path: string, line: string): Promise<{ ok: boolean }> {
     const attempt = room.writeChain
       .catch(() => undefined)
-      .then(() => appendFile(path, `${line}\n`))
+      .then(() => appendRecoverably(room, path, line))
       .then(
         () => ({ ok: true }),
         (error) => {
@@ -346,8 +402,10 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   // line and every LATER one pending, in order — a later line is never written
   // ahead of an earlier one for the same room. Lines already on disk are never
   // re-written (only the pending set and the new tail are touched), and each
-  // append writes one whole `line\n`, so a partial failure never corrupts the
-  // file. Returns the id of the first line that still could not persist, or
+  // retry seals any partial physical line left by a rejected append before
+  // appending again. The damaged prefix is preserved, never truncated. A full
+  // write reported as failed may leave a duplicate, which union tolerates.
+  // Returns the id of the first line that still could not persist, or
   // undefined if everything (including tail) reached disk.
   function persistPending(room: Room, tail?: { id: string; line: string }): Promise<{ failedId?: string }> {
     const path = join(options.dir, `${room.root}.lync`);
@@ -357,7 +415,7 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
       for (let index = 0; index < queue.length; index += 1) {
         const [id, line] = queue[index];
         try {
-          await appendFile(path, `${line}\n`);
+          await appendRecoverably(room, path, line);
           room.unpersisted.delete(id);
         } catch (error) {
           log(`[lync relay] persist failed for ${path}: ${String(error)}`);
@@ -412,20 +470,10 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
     handleConnection,
     status,
     close: async () => {
-      // Flush every pending append first — writeChains are kept resolved (never
-      // rejected) by appendSerialized, so this settles promptly and no accepted
-      // write is dropped. This honors the durability promise in the interface.
-      for (const pending of rooms.values()) {
-        try {
-          const room = await pending;
-          await room.writeChain;
-        } catch {
-          // A room that never recovered has no pending writes worth waiting on.
-        }
-      }
-      // Then tear down sockets and the server under a hard cap: on some ws
-      // builds (notably bun) socket teardown and wss.close() can block
-      // indefinitely, so shutdown must never hang.
+      closing = true;
+      // Stop accepting frames before taking the write snapshot, then let every
+      // already-queued frame finish. Otherwise a message racing close could be
+      // accepted after the durability pass.
       for (const socket of sockets) {
         try {
           socket.terminate();
@@ -433,18 +481,52 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
           // Already gone.
         }
       }
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, 300);
-          wss.close(() => {
-            clearTimeout(timer);
-            resolve();
-          });
-        }),
-        new Promise<void>((resolve) => setTimeout(resolve, 1500)),
-      ]);
+      await Promise.all([...frameChains.values()].map((chain) => chain.catch(() => undefined)));
+
+      const durableFailures: string[] = [];
+      for (const pending of rooms.values()) {
+        try {
+          const room = await pending;
+          await room.writeChain;
+          if (room.unpersisted.size > 0) {
+            const { failedId } = await persistPending(room);
+            if (failedId !== undefined) durableFailures.push(`${room.root}:${failedId}`);
+          }
+        } catch {
+          // A room that never recovered has no pending writes worth waiting on.
+        }
+      }
+      // Close the server under a hard cap: on some ws builds (notably bun)
+      // wss.close() can block indefinitely, so shutdown must never hang.
+      if (!transportClose) {
+        transportClose = Promise.race([
+          new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, 300);
+            wss.close(() => {
+              clearTimeout(timer);
+              resolve();
+            });
+          }),
+          new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+        ]);
+      }
+      await transportClose;
+      if (durableFailures.length > 0) {
+        throw new Error(`relay close left pending durable writes: ${durableFailures.join(", ")}`);
+      }
     },
   };
+}
+
+function sameVerifiedBody(a: string, b: string): boolean {
+  if (a === b) return true;
+  const aBody = verifiedLyncBodyBytes(a);
+  const bBody = verifiedLyncBodyBytes(b);
+  if (!aBody || !bBody || aBody.byteLength !== bBody.byteLength) return false;
+  for (let index = 0; index < aBody.byteLength; index += 1) {
+    if (aBody[index] !== bBody[index]) return false;
+  }
+  return true;
 }
 
 function truncate(text: string): string {

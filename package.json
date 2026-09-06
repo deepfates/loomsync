@@ -1,6 +1,6 @@
 {
   "name": "@deepfates/lync",
-  "version": "0.4.0",
+  "version": "0.4.3",
   "description": "The lync format: append-only JSONL event logs merged by set union. Parsing, stores, views, looms, live sync, loom client, indexes, the sync relay, and the lync command. Zero dependencies.",
   "type": "module",
   "license": "MIT",
@@ -41,10 +41,25 @@
       "import": "./dist/events.js",
       "default": "./dist/events.js"
     },
+    "./indexed-union": {
+      "types": "./dist/indexed-union.d.ts",
+      "import": "./dist/indexed-union.js",
+      "default": "./dist/indexed-union.js"
+    },
     "./file-log": {
       "types": "./dist/file-log.d.ts",
       "import": "./dist/file-log.js",
       "default": "./dist/file-log.js"
+    },
+    "./file-loom-cursor": {
+      "types": "./dist/file-loom-cursor.d.ts",
+      "import": "./dist/file-loom-cursor.js",
+      "default": "./dist/file-loom-cursor.js"
+    },
+    "./file-loom-checkpoint": {
+      "types": "./dist/file-loom-checkpoint.d.ts",
+      "import": "./dist/file-loom-checkpoint.js",
+      "default": "./dist/file-loom-checkpoint.js"
     },
     "./idb-log": {
       "types": "./dist/idb-log.d.ts",
@@ -70,6 +85,11 @@
       "types": "./dist/views.d.ts",
       "import": "./dist/views.js",
       "default": "./dist/views.js"
+    },
+    "./presentation": {
+      "types": "./dist/presentation.d.ts",
+      "import": "./dist/presentation.js",
+      "default": "./dist/presentation.js"
     },
     "./profiles/text-story": {
       "types": "./dist/profiles/text-story.d.ts",
@@ -151,6 +171,7 @@
     "bin",
     "dist",
     "FORMAT.md",
+    "RELEASE.md",
     "pacts"
   ],
   "dependencies": {},
@@ -159,8 +180,10 @@
     "test": "vitest run",
     "typecheck": "pnpm build && tsc -p tsconfig.json --noEmit",
     "guard:paths": "bash scripts/no-machine-local-paths.sh",
-    "verify": "pnpm guard:paths && pnpm test && pnpm typecheck && pnpm check:examples",
+    "verify": "pnpm guard:paths && pnpm test && pnpm typecheck && pnpm check:examples && pnpm check:package",
     "check:examples": "node scripts/check-readme-examples.mjs",
+    "check:package": "node scripts/check-packed-artifact.mjs",
+    "prepack": "pnpm build",
     "prepublishOnly": "tsc -p tsconfig.json"
   },
   "devDependencies": {

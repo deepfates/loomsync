@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { sha256Hex } from "../src/sha256.js";
+import { Sha256, sha256Hex } from "../src/sha256.js";
 
 function nodeHex(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -37,5 +37,17 @@ describe("sha256Hex", () => {
     const backing = new Uint8Array(100).map((_, i) => i & 0xff);
     const view = backing.subarray(10, 40);
     expect(sha256Hex(view)).toBe(nodeHex(view));
+  });
+
+  it("matches one-shot hashing across arbitrary incremental chunk boundaries", () => {
+    const bytes = new Uint8Array(randomBytes(1024 * 1024 + 137));
+    const hash = new Sha256();
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const take = Math.min(bytes.byteLength - offset, (offset * 17) % 8191 + 1);
+      hash.update(bytes.subarray(offset, offset + take));
+      offset += take;
+    }
+    expect(hash.digestHex()).toBe(nodeHex(bytes));
   });
 });

@@ -1,4 +1,4 @@
-import type { EventStore, StoredEvent, AppendResult } from "./store.js";
+import type { EventStore, StoredEvent, AppendResult, EventBatch } from "./store.js";
 import type { LyncEventBody } from "./events.js";
 import { decodeFrame, encodeFrame, type LyncPresence, type SyncFrame } from "./sync-protocol.js";
 
@@ -268,6 +268,25 @@ export function createSyncedStore(
       if (result.status === "added") pushAdded(result.event);
       return result;
     },
+    ...(inner.appendMany
+      ? {
+          async appendMany(events: EventBatch): Promise<AppendResult[]> {
+            const rootsSyncedBeforeBatch = new Set(syncedRoots);
+            const results = await inner.appendMany!(events);
+            const newRoots = new Set<string>();
+            for (const result of results) {
+              if (result.status !== "added") continue;
+              if (rootsSyncedBeforeBatch.has(result.event.root)) {
+                pushLine(result.event.root, result.event.bytes);
+              } else {
+                newRoots.add(result.event.root);
+              }
+            }
+            for (const root of newRoots) ensureSynced(root);
+            return results;
+          },
+        }
+      : {}),
     async union(line: string): Promise<AppendResult> {
       const result = await inner.union(line);
       if (result.status === "added") pushAdded(result.event);
@@ -283,6 +302,7 @@ export function createSyncedStore(
       return inner.subscribe(rootId, listener);
     },
     roots: (kind) => inner.roots(kind),
+    ...(inner.rootRevision ? { rootRevision: (rootId: string) => inner.rootRevision!(rootId) } : {}),
     ...(inner.exportRootBytes ? { exportRootBytes: (rootId: string) => inner.exportRootBytes!(rootId) } : {}),
     ...(inner.diagnostics ? { diagnostics: () => inner.diagnostics!() } : {}),
     syncRoot: ensureSynced,

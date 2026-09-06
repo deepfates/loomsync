@@ -8,7 +8,13 @@ import {
   type SyncTransport,
 } from "@deepfates/lync/synced-store";
 import type { SyncFrame } from "@deepfates/lync/sync-protocol";
-import { serializeLyncEvent, type AppendResult, type EventStore, type StoredEvent } from "@deepfates/lync/store";
+import {
+  BaseEventStore,
+  serializeLyncEvent,
+  type AppendResult,
+  type EventStore,
+  type StoredEvent,
+} from "@deepfates/lync/store";
 
 function mockTransport(initial: SyncConnectionState = "online") {
   const frameHandlers = new Set<(frame: SyncFrame) => void>();
@@ -60,6 +66,23 @@ describe("createSyncedStore", () => {
     expect(evFrames).toHaveLength(1);
     expect(evFrames[0]).toMatchObject({ t: "ev" });
     expect(subFrames.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("pushes a newly imported batch once and subscribes to its root", async () => {
+    const mock = mockTransport();
+    const store = createSyncedStore(createMemoryEventStore(), mock.transport);
+    const results = await store.appendMany!([
+      body("batch-root", [], "root"),
+      body("batch-child", ["batch-root"], "child"),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(results.map((result) => result.status)).toEqual(["added", "added"]);
+    const eventIds = mock.sent
+      .filter((frame) => frame.t === "ev")
+      .map((frame) => JSON.parse(frame.line).id);
+    expect(eventIds.sort()).toEqual(["batch-child", "batch-root"]);
+    expect(mock.sent.filter((frame) => frame.t === "sub" && frame.root === "batch-root")).toHaveLength(1);
   });
 
   it("ingests a remote event reactively — a root subscriber fires — without echoing it back", async () => {
@@ -175,10 +198,58 @@ function breakableStore(inner: EventStore) {
   };
 }
 
+class FailFirstPersistStore extends BaseEventStore {
+  persistAttempts = 0;
+  durableIds: string[] = [];
+
+  protected override async persist() {
+    this.persistAttempts += 1;
+    if (this.persistAttempts === 1) throw new Error("injected first persist failure");
+    this.durableIds = this.dumpRecords().events.map((record) => record.id).sort();
+  }
+}
+
 const settle = () => new Promise((r) => setTimeout(r, 25));
 
 describe("awaited union (dee-s6dc): the receive cursor advances only on inspected success", () => {
   const line = (id: string, parents: string[], text: string) => serializeLyncEvent(body(id, parents, text));
+
+  it("replayed identical bytes heal a dirty inner store before the sync cursor advances", async () => {
+    const mock = mockTransport();
+    const inner = new FailFirstPersistStore();
+    const store = createSyncedStore(inner, mock.transport, {});
+    store.syncRoot("r1");
+    await settle();
+
+    mock.inject({ t: "ev", root: "r1", seq: 1, line: line("r1", [], "one") });
+    await settle();
+    expect(inner.durableIds).toEqual([]);
+    expect(store.status().failures.some((failure) => failure.includes("first persist failure"))).toBe(true);
+
+    mock.setState("offline");
+    mock.setState("online");
+    mock.open();
+    await settle();
+    expect(mock.sent.filter((frame) => frame.t === "sub" && frame.root === "r1").at(-1)).toMatchObject({
+      t: "sub",
+      since: 0,
+    });
+
+    mock.inject({ t: "ev", root: "r1", seq: 1, line: line("r1", [], "one") });
+    mock.inject({ t: "live", root: "r1", seq: 1 });
+    await settle();
+    expect(inner.persistAttempts).toBe(2);
+    expect(inner.durableIds).toEqual(["r1"]);
+
+    mock.setState("offline");
+    mock.setState("online");
+    mock.open();
+    await settle();
+    expect(mock.sent.filter((frame) => frame.t === "sub" && frame.root === "r1").at(-1)).toMatchObject({
+      t: "sub",
+      since: 1,
+    });
+  });
 
   it("a failed union on frame k freezes the cursor at k-1, surfaces the failure, and the event applies after heal + resubscribe", async () => {
     const statuses: SyncStatus[] = [];
@@ -353,4 +424,3 @@ describe("generation change in the synced store (dee-u6tq)", () => {
     expect(store.status().failures).toEqual([]);
   });
 });
-

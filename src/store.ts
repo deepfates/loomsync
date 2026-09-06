@@ -15,13 +15,19 @@ export type AppendResult =
   | { status: "conflict"; event: StoredEvent; conflictWith: StoredEvent }
   | { status: "garbage"; reason: string; bytes: string };
 
+export type EventBatch = Iterable<LyncEventBody> | AsyncIterable<LyncEventBody>;
+
 export interface EventStore {
   append(ev: LyncEventBody): Promise<AppendResult>;
+  /** Append a causal group, coalescing an uncontended batch into one durable flush. */
+  appendMany?(events: EventBatch): Promise<AppendResult[]>;
   union(line: string): Promise<AppendResult>;
   byId(id: string): Promise<StoredEvent | null>;
   byRoot(rootId: string): Promise<StoredEvent[]>;
   subscribe(rootId: string, listener: (ev: StoredEvent) => void): () => void;
   roots(kind?: "lync/loom" | "lync/index"): Promise<StoredEvent[]>;
+  /** Monotonic in-memory revision for one root, when the backend can expose it. */
+  rootRevision?(rootId: string): number;
   exportRootBytes?(rootId: string): Promise<string>;
   diagnostics?(): Promise<EventStoreDiagnostics>;
 }
@@ -31,6 +37,7 @@ export interface EventStoreDiagnostics {
   conflicts: number;
   pending: number;
   garbage: number;
+  pendingPersistence: boolean;
 }
 
 export interface StoreRecord {
@@ -65,13 +72,38 @@ export abstract class BaseEventStore implements EventStore {
   protected readonly pending = new Map<string, PendingRecord>();
   protected readonly garbage: GarbageRecord[] = [];
   private readonly listeners = new Map<string, Set<(ev: StoredEvent) => void>>();
+  private readonly rootVersions = new Map<string, number>();
+  private batchDepth = 0;
+  private mutationVersion = 0;
+  private persistedVersion = 0;
+  private persistChain: Promise<void> = Promise.resolve();
+  private readonly pendingEmits: { version: number; event: StoredEvent }[] = [];
 
   async append(ev: LyncEventBody): Promise<AppendResult> {
-    return this.ingest(serializeLyncEvent(ev), false);
+    await this.flushPendingPersistence();
+    const result = await this.ingest(serializeLyncEvent(ev), false);
+    await this.flushPendingPersistence();
+    return result;
+  }
+
+  async appendMany(events: EventBatch): Promise<AppendResult[]> {
+    await this.flushPendingPersistence();
+    this.batchDepth += 1;
+    try {
+      const results: AppendResult[] = [];
+      for await (const event of events) results.push(await this.ingest(serializeLyncEvent(event), false));
+      return results;
+    } finally {
+      this.batchDepth -= 1;
+      await this.flushPendingPersistence();
+    }
   }
 
   async union(line: string): Promise<AppendResult> {
-    return this.ingest(line, true);
+    await this.flushPendingPersistence();
+    const result = await this.ingest(line, true);
+    await this.flushPendingPersistence();
+    return result;
   }
 
   async byId(id: string): Promise<StoredEvent | null> {
@@ -100,6 +132,10 @@ export abstract class BaseEventStore implements EventStore {
       .sort(compareStored);
   }
 
+  rootRevision(rootId: string): number {
+    return this.rootVersions.get(rootId) ?? 0;
+  }
+
   async exportRootBytes(rootId: string): Promise<string> {
     const events = await this.byRoot(rootId);
     return events.map((event) => event.bytes).join("\n") + (events.length ? "\n" : "");
@@ -111,6 +147,7 @@ export abstract class BaseEventStore implements EventStore {
       conflicts: this.conflicts.size,
       pending: this.pending.size,
       garbage: this.garbage.length,
+      pendingPersistence: this.persistedVersion < this.mutationVersion,
     };
   }
 
@@ -131,6 +168,18 @@ export abstract class BaseEventStore implements EventStore {
       this.pending.set(pendingKey(record.missingParent, record.digest), record);
     }
     this.garbage.push(...(records.garbage ?? []));
+  }
+
+  /** Hydrate already-durable union lines without re-persisting or notifying. */
+  protected async loadLines(lines: Iterable<string>): Promise<void> {
+    this.batchDepth += 1;
+    try {
+      for (const line of lines) await this.ingest(line, true);
+    } finally {
+      this.batchDepth -= 1;
+      this.persistedVersion = this.mutationVersion;
+      this.pendingEmits.length = 0;
+    }
   }
 
   protected dumpRecords(): {
@@ -155,12 +204,49 @@ export abstract class BaseEventStore implements EventStore {
 
   protected async persist(): Promise<void> {}
 
+  private async persistMutation(emitAfterPersistence?: StoredEvent): Promise<void> {
+    this.mutationVersion += 1;
+    if (emitAfterPersistence) {
+      this.pendingEmits.push({ version: this.mutationVersion, event: emitAfterPersistence });
+    }
+    if (this.batchDepth === 0) await this.flushPendingPersistence();
+  }
+
+  /**
+   * Persistence failure leaves the in-memory mutation explicitly dirty. Every
+   * later public mutation first retries that exact state, so an identical
+   * event cannot become a clean duplicate while its bytes are still volatile.
+   * The chain also keeps overlapping callers from racing store snapshots.
+   */
+  private async flushPendingPersistence(): Promise<void> {
+    if (this.persistedVersion >= this.mutationVersion) return;
+    const attempt = this.persistChain.then(async () => {
+      while (this.persistedVersion < this.mutationVersion) {
+        const targetVersion = this.mutationVersion;
+        await this.persist();
+        this.persistedVersion = targetVersion;
+        this.emitPersistedThrough(targetVersion);
+      }
+    });
+    this.persistChain = attempt.catch(() => {});
+    await attempt;
+  }
+
+  private emitPersistedThrough(version: number): void {
+    let count = 0;
+    while (count < this.pendingEmits.length && this.pendingEmits[count]!.version <= version) {
+      this.emit(this.pendingEmits[count]!.event);
+      count += 1;
+    }
+    if (count > 0) this.pendingEmits.splice(0, count);
+  }
+
   private async ingest(line: string, allowBuffer: boolean): Promise<AppendResult> {
     const parsed = parseStoredLine(line);
     if (!parsed.ok) {
       const result = { status: "garbage", reason: parsed.reason, bytes: line } as const;
       this.garbage.push({ reason: parsed.reason, bytes: line });
-      await this.persist();
+      await this.persistMutation();
       return result;
     }
 
@@ -169,7 +255,7 @@ export abstract class BaseEventStore implements EventStore {
     if (known !== null) {
       const result = { status: "garbage", reason: known, bytes: line } as const;
       this.garbage.push({ reason: known, bytes: line });
-      await this.persist();
+      await this.persistMutation();
       return result;
     }
 
@@ -182,12 +268,12 @@ export abstract class BaseEventStore implements EventStore {
       if (!allowBuffer) {
         const result = { status: "garbage", reason: `missing parent: ${parent}`, bytes: line } as const;
         this.garbage.push({ reason: result.reason, bytes: line });
-        await this.persist();
+        await this.persistMutation();
         return result;
       }
       const record = { missingParent: parent, digest: bodyDigest(parsed.bodyBytes), bytes: line };
       this.pending.set(pendingKey(record.missingParent, record.digest), record);
-      await this.persist();
+      await this.persistMutation();
       return { status: "buffered", missingParent: parent, bytes: line };
     }
 
@@ -197,7 +283,8 @@ export abstract class BaseEventStore implements EventStore {
       if (stripSplice(existing.bytes) === stripSplice(line)) {
         if (isRicherLine(line, existing.bytes)) {
           this.events.set(body.id, event);
-          await this.persist();
+          this.bumpRoot(root);
+          await this.persistMutation();
         }
         return { status: "duplicate", event: this.events.get(body.id)! };
       }
@@ -210,13 +297,14 @@ export abstract class BaseEventStore implements EventStore {
         bytes: existing.bytes,
       });
       this.conflicts.set(conflictKey(body.id, digest), { id: body.id, digest, root, bytes: line });
-      await this.persist();
+      this.bumpRoot(root);
+      await this.persistMutation();
       return { status: "conflict", event, conflictWith: existing };
     }
 
     this.events.set(body.id, event);
-    await this.persist();
-    this.emit(event);
+    this.bumpRoot(root);
+    await this.persistMutation(event);
     await this.drain(body.id);
     return { status: "added", event };
   }
@@ -235,6 +323,10 @@ export abstract class BaseEventStore implements EventStore {
 
   private emit(event: StoredEvent): void {
     for (const listener of this.listeners.get(event.root) ?? []) listener(event);
+  }
+
+  private bumpRoot(rootId: string): void {
+    this.rootVersions.set(rootId, (this.rootVersions.get(rootId) ?? 0) + 1);
   }
 
   private isConflicted(id: string): boolean {
