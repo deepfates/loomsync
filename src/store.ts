@@ -76,37 +76,34 @@ export abstract class BaseEventStore implements EventStore {
   private batchDepth = 0;
   private mutationVersion = 0;
   private persistedVersion = 0;
-  private mutationChain: Promise<void> = Promise.resolve();
   private persistChain: Promise<void> = Promise.resolve();
   private readonly pendingEmits: { version: number; event: StoredEvent }[] = [];
 
   async append(ev: LyncEventBody): Promise<AppendResult> {
-    return this.enqueueMutation(async () => {
-      await this.flushPendingPersistence();
-      return this.ingest(serializeLyncEvent(ev), false);
-    });
+    await this.flushPendingPersistence();
+    const result = await this.ingest(serializeLyncEvent(ev), false);
+    await this.flushPendingPersistence();
+    return result;
   }
 
   async appendMany(events: EventBatch): Promise<AppendResult[]> {
-    return this.enqueueMutation(async () => {
+    await this.flushPendingPersistence();
+    this.batchDepth += 1;
+    try {
+      const results: AppendResult[] = [];
+      for await (const event of events) results.push(await this.ingest(serializeLyncEvent(event), false));
+      return results;
+    } finally {
+      this.batchDepth -= 1;
       await this.flushPendingPersistence();
-      this.batchDepth += 1;
-      try {
-        const results: AppendResult[] = [];
-        for await (const event of events) results.push(await this.ingest(serializeLyncEvent(event), false));
-        return results;
-      } finally {
-        this.batchDepth -= 1;
-        if (this.batchDepth === 0) await this.flushPendingPersistence();
-      }
-    });
+    }
   }
 
   async union(line: string): Promise<AppendResult> {
-    return this.enqueueMutation(async () => {
-      await this.flushPendingPersistence();
-      return this.ingest(line, true);
-    });
+    await this.flushPendingPersistence();
+    const result = await this.ingest(line, true);
+    await this.flushPendingPersistence();
+    return result;
   }
 
   async byId(id: string): Promise<StoredEvent | null> {
@@ -206,18 +203,6 @@ export abstract class BaseEventStore implements EventStore {
   }
 
   protected async persist(): Promise<void> {}
-
-  /**
-   * Keep public mutations from sharing another caller's batch scope. In
-   * particular, an async appendMany source may suspend between events; a
-   * concurrent append must wait rather than resolve while its persistence was
-   * suppressed by that still-open batch.
-   */
-  private enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {
-    const attempt = this.mutationChain.then(mutation);
-    this.mutationChain = attempt.then(() => {}, () => {});
-    return attempt;
-  }
 
   private async persistMutation(emitAfterPersistence?: StoredEvent): Promise<void> {
     this.mutationVersion += 1;

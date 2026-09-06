@@ -236,11 +236,13 @@ describe("lync storage backends", () => {
     await expect(store.diagnostics()).resolves.toMatchObject({ events: 101 });
   });
 
-  it("does not let a concurrent append resolve inside a suspended batch", async () => {
+  it("makes concurrent mutation results durable while a batch is suspended", async () => {
     const store = new RecordingStore();
     const batchRoot = storageEvent("suspended-batch-root");
     const batchChild = storageEvent("suspended-batch-child", [batchRoot.id]);
-    const concurrent = storageEvent("concurrent-root");
+    const concurrentAppendEvent = storageEvent("concurrent-append");
+    const concurrentUnionEvent = storageEvent("concurrent-union");
+    const concurrentBatchEvent = storageEvent("concurrent-batch");
     let releaseBatch!: () => void;
     let reachSuspension!: () => void;
     const suspended = new Promise<void>((resolve) => {
@@ -258,21 +260,76 @@ describe("lync storage backends", () => {
 
     const batchAppend = store.appendMany(batch());
     await suspended;
-    let concurrentSettled = false;
-    const concurrentAppend = store.append(concurrent).finally(() => {
-      concurrentSettled = true;
+    const concurrentAppend = store.append(concurrentAppendEvent).then((result) => {
+      expect(store.durableIds).toContain(concurrentAppendEvent.id);
+      return result;
     });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    const concurrentUnion = store.union(serializeLyncEvent(concurrentUnionEvent))
+      .then((result) => {
+        expect(store.durableIds).toContain(concurrentUnionEvent.id);
+        return result;
+      });
+    const concurrentBatch = store.appendMany([concurrentBatchEvent]).then((results) => {
+      expect(store.durableIds).toContain(concurrentBatchEvent.id);
+      return results;
+    });
+    await Promise.all([concurrentAppend, concurrentUnion, concurrentBatch]);
+    expect(store.durableIds).toEqual([
+      batchRoot.id,
+      concurrentAppendEvent.id,
+      concurrentUnionEvent.id,
+      concurrentBatchEvent.id,
+    ].sort());
 
-    try {
-      expect(concurrentSettled).toBe(false);
-      expect(store.durableIds).toEqual([]);
-    } finally {
-      releaseBatch();
-      await batchAppend;
-      await concurrentAppend;
+    releaseBatch();
+    await batchAppend;
+    expect(store.durableIds).toEqual([
+      batchChild.id,
+      batchRoot.id,
+      concurrentAppendEvent.id,
+      concurrentUnionEvent.id,
+      concurrentBatchEvent.id,
+    ].sort());
+  });
+
+  it("allows an async batch producer to await mutations on the same store", async () => {
+    const store = new RecordingStore();
+    const batchRoot = storageEvent("reentrant-batch-root");
+    const nestedAppend = storageEvent("reentrant-append");
+    const nestedUnion = storageEvent("reentrant-union");
+    const nestedBatch = storageEvent("reentrant-batch");
+    const batchChild = storageEvent("reentrant-batch-child", [batchRoot.id]);
+    async function* batch() {
+      yield batchRoot;
+      await store.append(nestedAppend);
+      await store.union(serializeLyncEvent(nestedUnion));
+      await store.appendMany([nestedBatch]);
+      yield batchChild;
     }
-    expect(store.durableIds).toEqual([batchChild.id, batchRoot.id, concurrent.id].sort());
+
+    await expect(store.appendMany(batch())).resolves.toHaveLength(2);
+    expect(store.durableIds).toEqual([
+      batchChild.id,
+      batchRoot.id,
+      nestedAppend.id,
+      nestedUnion.id,
+      nestedBatch.id,
+    ].sort());
+  });
+
+  it("continues the queued mutation only after retrying a failed persistence", async () => {
+    const store = new FailOnceStore();
+    const root = storageEvent("queued-after-failure-root");
+    const child = storageEvent("queued-after-failure-child", [root.id]);
+
+    const failed = store.append(root);
+    const queued = store.append(child);
+    await expect(failed).rejects.toThrow("injected persist failure");
+    await expect(queued).resolves.toMatchObject({ status: "added" });
+
+    expect(store.persistAttempts).toBe(2);
+    expect(store.durableIds).toEqual([child.id, root.id].sort());
+    await expect(store.diagnostics()).resolves.toMatchObject({ pendingPersistence: false });
   });
 
   it("retries a dirty added event before treating identical bytes as a duplicate", async () => {
