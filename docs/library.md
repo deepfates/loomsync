@@ -81,9 +81,11 @@ records to `garbage.json`. On open, canonical journals win over legacy
 `events.json` snapshots; unique snapshot bytes are healed into the journals
 and the old snapshot is retained as an ignored migration artifact.
 
-Loom snapshot import can use a store's optional `appendMany` capability for
-one causally ordered flush. IndexedDB writes only changed records in that
-transaction.
+Loom snapshot import can use a store's optional `appendMany` capability to
+coalesce an uncontended causal batch into one durable flush. Concurrent or
+re-entrant mutations may force an intermediate flush so each successful
+mutation has reached durable state before its own promise resolves. IndexedDB
+writes only changed records in that transaction.
 
 ## Large re-readable sources
 
