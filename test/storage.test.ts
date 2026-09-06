@@ -236,6 +236,45 @@ describe("lync storage backends", () => {
     await expect(store.diagnostics()).resolves.toMatchObject({ events: 101 });
   });
 
+  it("does not let a concurrent append resolve inside a suspended batch", async () => {
+    const store = new RecordingStore();
+    const batchRoot = storageEvent("suspended-batch-root");
+    const batchChild = storageEvent("suspended-batch-child", [batchRoot.id]);
+    const concurrent = storageEvent("concurrent-root");
+    let releaseBatch!: () => void;
+    let reachSuspension!: () => void;
+    const suspended = new Promise<void>((resolve) => {
+      reachSuspension = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseBatch = resolve;
+    });
+    async function* batch() {
+      yield batchRoot;
+      reachSuspension();
+      await released;
+      yield batchChild;
+    }
+
+    const batchAppend = store.appendMany(batch());
+    await suspended;
+    let concurrentSettled = false;
+    const concurrentAppend = store.append(concurrent).finally(() => {
+      concurrentSettled = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    try {
+      expect(concurrentSettled).toBe(false);
+      expect(store.durableIds).toEqual([]);
+    } finally {
+      releaseBatch();
+      await batchAppend;
+      await concurrentAppend;
+    }
+    expect(store.durableIds).toEqual([batchChild.id, batchRoot.id, concurrent.id].sort());
+  });
+
   it("retries a dirty added event before treating identical bytes as a duplicate", async () => {
     const store = new FailOnceStore();
     const emitted: string[] = [];
@@ -328,6 +367,14 @@ class FailOnceStore extends BaseEventStore {
   protected override async persist() {
     this.persistAttempts += 1;
     if (this.persistAttempts === 1) throw new Error("injected persist failure");
+    this.durableIds = this.dumpRecords().events.map((record) => record.id).sort();
+  }
+}
+
+class RecordingStore extends BaseEventStore {
+  durableIds: string[] = [];
+
+  protected override async persist() {
     this.durableIds = this.dumpRecords().events.map((record) => record.id).sort();
   }
 }
