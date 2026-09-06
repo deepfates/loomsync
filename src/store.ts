@@ -19,7 +19,7 @@ export type EventBatch = Iterable<LyncEventBody> | AsyncIterable<LyncEventBody>;
 
 export interface EventStore {
   append(ev: LyncEventBody): Promise<AppendResult>;
-  /** Append one causally ordered group with at most one durable store flush. */
+  /** Append a causal group, coalescing an uncontended batch into one durable flush. */
   appendMany?(events: EventBatch): Promise<AppendResult[]>;
   union(line: string): Promise<AppendResult>;
   byId(id: string): Promise<StoredEvent | null>;
@@ -81,7 +81,9 @@ export abstract class BaseEventStore implements EventStore {
 
   async append(ev: LyncEventBody): Promise<AppendResult> {
     await this.flushPendingPersistence();
-    return this.ingest(serializeLyncEvent(ev), false);
+    const result = await this.ingest(serializeLyncEvent(ev), false);
+    await this.flushPendingPersistence();
+    return result;
   }
 
   async appendMany(events: EventBatch): Promise<AppendResult[]> {
@@ -93,13 +95,15 @@ export abstract class BaseEventStore implements EventStore {
       return results;
     } finally {
       this.batchDepth -= 1;
-      if (this.batchDepth === 0) await this.flushPendingPersistence();
+      await this.flushPendingPersistence();
     }
   }
 
   async union(line: string): Promise<AppendResult> {
     await this.flushPendingPersistence();
-    return this.ingest(line, true);
+    const result = await this.ingest(line, true);
+    await this.flushPendingPersistence();
+    return result;
   }
 
   async byId(id: string): Promise<StoredEvent | null> {

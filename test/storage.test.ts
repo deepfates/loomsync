@@ -143,6 +143,77 @@ describe("lync storage backends", () => {
     );
   });
 
+  it("seals a partial failed append before retrying its full event", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-partial-append-"));
+    const store = createFileEventStore(dir);
+    await store.diagnostics();
+    const root = storageEvent("partial-append-root");
+    const line = serializeLyncEvent(root);
+    const canonicalFile = path.join(dir, `${encodeURIComponent(root.id)}.lync`);
+    const originalOpen = fs.open;
+    let injected = false;
+    fs.open = (async (file, flags, mode) => {
+      const handle = await originalOpen(file, flags, mode);
+      if (!injected && String(file).endsWith(".lync") && flags === "a") {
+        injected = true;
+        handle.writeFile = (async (data: string | Uint8Array) => {
+          await handle.write(String(data).slice(0, 10));
+          throw Object.assign(new Error("injected partial ENOSPC"), { code: "ENOSPC" });
+        }) as typeof handle.writeFile;
+      }
+      return handle;
+    }) as typeof fs.open;
+    try {
+      await expect(store.append(root)).rejects.toThrow("injected partial ENOSPC");
+    } finally {
+      fs.open = originalOpen;
+    }
+
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(line.slice(0, 10));
+    await expect(store.append(root)).resolves.toMatchObject({ status: "duplicate" });
+    await expect(store.diagnostics()).resolves.toMatchObject({ pendingPersistence: false });
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(`${line.slice(0, 10)}\n${line}\n`);
+
+    const reopened = createFileEventStore(dir);
+    await expect(reopened.byId(root.id)).resolves.toMatchObject({ body: { id: root.id } });
+    await expect(reopened.diagnostics()).resolves.toMatchObject({ events: 1, garbage: 1 });
+  });
+
+  it("safely replays a complete append whose sync failed", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-failed-sync-"));
+    const store = createFileEventStore(dir);
+    await store.diagnostics();
+    const root = storageEvent("failed-sync-root");
+    const line = serializeLyncEvent(root);
+    const canonicalFile = path.join(dir, `${encodeURIComponent(root.id)}.lync`);
+    const originalOpen = fs.open;
+    let injected = false;
+    fs.open = (async (file, flags, mode) => {
+      const handle = await originalOpen(file, flags, mode);
+      if (!injected && String(file).endsWith(".lync") && flags === "a") {
+        injected = true;
+        handle.sync = async () => {
+          throw Object.assign(new Error("injected sync ENOSPC"), { code: "ENOSPC" });
+        };
+      }
+      return handle;
+    }) as typeof fs.open;
+    try {
+      await expect(store.append(root)).rejects.toThrow("injected sync ENOSPC");
+    } finally {
+      fs.open = originalOpen;
+    }
+
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(`${line}\n`);
+    await expect(store.append(root)).resolves.toMatchObject({ status: "duplicate" });
+    await expect(store.diagnostics()).resolves.toMatchObject({ pendingPersistence: false });
+    expect(await fs.readFile(canonicalFile, "utf8")).toBe(`${line}\n${line}\n`);
+
+    const reopened = createFileEventStore(dir);
+    await expect(reopened.byId(root.id)).resolves.toMatchObject({ body: { id: root.id } });
+    await expect(reopened.diagnostics()).resolves.toMatchObject({ events: 1, garbage: 0 });
+  });
+
   it("accepts but permanently surfaces a complete final event that lacked LF", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lync-no-lf-"));
     const root = storageEvent("no-lf-root");
@@ -234,6 +305,143 @@ describe("lync storage backends", () => {
 
     expect(store.flushes).toBe(1);
     await expect(store.diagnostics()).resolves.toMatchObject({ events: 101 });
+  });
+
+  const concurrentMutationCases: Array<[
+    string,
+    (store: BaseEventStore, event: LyncEventBody) => Promise<unknown>,
+  ]> = [
+    ["append", (store, event) => store.append(event)],
+    ["union", (store, event) => store.union(serializeLyncEvent(event))],
+    ["appendMany", (store, event) => store.appendMany([event])],
+  ];
+
+  it.each(concurrentMutationCases)(
+    "makes an independent %s durable before it resolves inside a suspended batch",
+    async (_name, mutate) => {
+      const store = new RecordingStore();
+      const independent = storageEvent(`independent-${_name}`);
+      const held = storageEvent(`held-${_name}`);
+      let releaseBatch!: () => void;
+      let reachSuspension!: () => void;
+      const suspended = new Promise<void>((resolve) => {
+        reachSuspension = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        releaseBatch = resolve;
+      });
+      async function* batch() {
+        reachSuspension();
+        await released;
+        yield held;
+      }
+
+      const heldBatch = store.appendMany(batch());
+      await suspended;
+      try {
+        await mutate(store, independent);
+        expect(store.durableIds).toContain(independent.id);
+      } finally {
+        releaseBatch();
+        await heldBatch;
+      }
+    },
+  );
+
+  it("makes concurrent mutation results durable while a batch is suspended", async () => {
+    const store = new RecordingStore();
+    const batchRoot = storageEvent("suspended-batch-root");
+    const batchChild = storageEvent("suspended-batch-child", [batchRoot.id]);
+    const concurrentAppendEvent = storageEvent("concurrent-append");
+    const concurrentUnionEvent = storageEvent("concurrent-union");
+    const concurrentBatchEvent = storageEvent("concurrent-batch");
+    let releaseBatch!: () => void;
+    let reachSuspension!: () => void;
+    const suspended = new Promise<void>((resolve) => {
+      reachSuspension = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseBatch = resolve;
+    });
+    async function* batch() {
+      yield batchRoot;
+      reachSuspension();
+      await released;
+      yield batchChild;
+    }
+
+    const batchAppend = store.appendMany(batch());
+    await suspended;
+    const concurrentAppend = store.append(concurrentAppendEvent).then((result) => {
+      expect(store.durableIds).toContain(concurrentAppendEvent.id);
+      return result;
+    });
+    const concurrentUnion = store.union(serializeLyncEvent(concurrentUnionEvent))
+      .then((result) => {
+        expect(store.durableIds).toContain(concurrentUnionEvent.id);
+        return result;
+      });
+    const concurrentBatch = store.appendMany([concurrentBatchEvent]).then((results) => {
+      expect(store.durableIds).toContain(concurrentBatchEvent.id);
+      return results;
+    });
+    await Promise.all([concurrentAppend, concurrentUnion, concurrentBatch]);
+    expect(store.durableIds).toEqual([
+      batchRoot.id,
+      concurrentAppendEvent.id,
+      concurrentUnionEvent.id,
+      concurrentBatchEvent.id,
+    ].sort());
+
+    releaseBatch();
+    await batchAppend;
+    expect(store.durableIds).toEqual([
+      batchChild.id,
+      batchRoot.id,
+      concurrentAppendEvent.id,
+      concurrentUnionEvent.id,
+      concurrentBatchEvent.id,
+    ].sort());
+  });
+
+  it("allows an async batch producer to await mutations on the same store", async () => {
+    const store = new RecordingStore();
+    const batchRoot = storageEvent("reentrant-batch-root");
+    const nestedAppend = storageEvent("reentrant-append");
+    const nestedUnion = storageEvent("reentrant-union");
+    const nestedBatch = storageEvent("reentrant-batch");
+    const batchChild = storageEvent("reentrant-batch-child", [batchRoot.id]);
+    async function* batch() {
+      yield batchRoot;
+      await store.append(nestedAppend);
+      await store.union(serializeLyncEvent(nestedUnion));
+      await store.appendMany([nestedBatch]);
+      yield batchChild;
+    }
+
+    await expect(store.appendMany(batch())).resolves.toHaveLength(2);
+    expect(store.durableIds).toEqual([
+      batchChild.id,
+      batchRoot.id,
+      nestedAppend.id,
+      nestedUnion.id,
+      nestedBatch.id,
+    ].sort());
+  });
+
+  it("continues the queued mutation only after retrying a failed persistence", async () => {
+    const store = new FailOnceStore();
+    const root = storageEvent("queued-after-failure-root");
+    const child = storageEvent("queued-after-failure-child", [root.id]);
+
+    const failed = store.append(root);
+    const queued = store.append(child);
+    await expect(failed).rejects.toThrow("injected persist failure");
+    await expect(queued).resolves.toMatchObject({ status: "added" });
+
+    expect(store.persistAttempts).toBe(2);
+    expect(store.durableIds).toEqual([child.id, root.id].sort());
+    await expect(store.diagnostics()).resolves.toMatchObject({ pendingPersistence: false });
   });
 
   it("retries a dirty added event before treating identical bytes as a duplicate", async () => {
@@ -328,6 +536,14 @@ class FailOnceStore extends BaseEventStore {
   protected override async persist() {
     this.persistAttempts += 1;
     if (this.persistAttempts === 1) throw new Error("injected persist failure");
+    this.durableIds = this.dumpRecords().events.map((record) => record.id).sort();
+  }
+}
+
+class RecordingStore extends BaseEventStore {
+  durableIds: string[] = [];
+
+  protected override async persist() {
     this.durableIds = this.dumpRecords().events.map((record) => record.id).sort();
   }
 }

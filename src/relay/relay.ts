@@ -136,6 +136,8 @@ interface Room {
   unpersisted: Map<string, string>;
   subscribers: Set<LyncRelaySocket>;
   writeChain: Promise<void>;
+  /** An append rejected after possibly writing a prefix; seal its tail before retrying. */
+  damagedTails: Set<string>;
   recoveryNote?: string;
 }
 
@@ -318,7 +320,7 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   }
 
   async function recoverRoom(root: string): Promise<Room> {
-    const room: Room = { root, generation: randomUUID(), seq: 0, lines: [], byId: new Map(), unpersisted: new Map(), subscribers: new Set(), writeChain: Promise.resolve() };
+    const room: Room = { root, generation: randomUUID(), seq: 0, lines: [], byId: new Map(), unpersisted: new Map(), subscribers: new Set(), writeChain: Promise.resolve(), damagedTails: new Set() };
     const recoveryNotes: string[] = [];
     for (const [path, label] of [
       [join(options.dir, `${root}.lync`), "main log"],
@@ -350,6 +352,30 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
     return room;
   }
 
+  // Called only within the room's writeChain. appendFile may reject after
+  // writing some bytes: retain them, but never concatenate a later event onto
+  // an unterminated physical line. A failed read/seal leaves the path marked
+  // for another check; no pending event may claim persistence through it.
+  async function appendRecoverably(room: Room, path: string, line: string): Promise<void> {
+    if (room.damagedTails.has(path)) {
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        bytes = Buffer.alloc(0);
+      }
+      if (bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a) await appendFile(path, "\n");
+      room.damagedTails.delete(path);
+    }
+    try {
+      await appendFile(path, `${line}\n`);
+    } catch (error) {
+      room.damagedTails.add(path);
+      throw error;
+    }
+  }
+
   // Serialize appends per room. A write failure must never wedge the room or
   // vanish silently: clear any prior rejection so the next write still runs,
   // keep the chain resolved so the room recovers, and report ok/failure to the
@@ -357,7 +383,7 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   function appendSerialized(room: Room, path: string, line: string): Promise<{ ok: boolean }> {
     const attempt = room.writeChain
       .catch(() => undefined)
-      .then(() => appendFile(path, `${line}\n`))
+      .then(() => appendRecoverably(room, path, line))
       .then(
         () => ({ ok: true }),
         (error) => {
@@ -376,8 +402,10 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
   // line and every LATER one pending, in order — a later line is never written
   // ahead of an earlier one for the same room. Lines already on disk are never
   // re-written (only the pending set and the new tail are touched), and each
-  // append writes one whole `line\n`, so a partial failure never corrupts the
-  // file. Returns the id of the first line that still could not persist, or
+  // retry seals any partial physical line left by a rejected append before
+  // appending again. The damaged prefix is preserved, never truncated. A full
+  // write reported as failed may leave a duplicate, which union tolerates.
+  // Returns the id of the first line that still could not persist, or
   // undefined if everything (including tail) reached disk.
   function persistPending(room: Room, tail?: { id: string; line: string }): Promise<{ failedId?: string }> {
     const path = join(options.dir, `${room.root}.lync`);
@@ -387,7 +415,7 @@ export function createLyncRelay(options: LyncRelayOptions): LyncRelay {
       for (let index = 0; index < queue.length; index += 1) {
         const [id, line] = queue[index];
         try {
-          await appendFile(path, `${line}\n`);
+          await appendRecoverably(room, path, line);
           room.unpersisted.delete(id);
         } catch (error) {
           log(`[lync relay] persist failed for ${path}: ${String(error)}`);

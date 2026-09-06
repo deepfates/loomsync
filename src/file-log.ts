@@ -25,6 +25,7 @@ export interface FileEventStoreOptions {
 export class FileEventStore extends BaseEventStore {
   private ready: Promise<void>;
   private readonly persistedLines = new Map<string, Set<string>>();
+  private readonly uncertainAppendFiles = new Set<string>();
   private persistedGarbage = "[]";
   private recoveredTailDiagnostic = false;
 
@@ -81,7 +82,17 @@ export class FileEventStore extends BaseEventStore {
       const known = this.persistedLines.get(file) ?? new Set<string>();
       const missing = lines.filter((line) => !known.has(line));
       if (missing.length === 0) continue;
-      await appendDurably(path.join(this.options.dir, file), missing);
+      try {
+        await appendDurably(
+          path.join(this.options.dir, file),
+          missing,
+          this.uncertainAppendFiles.has(file),
+        );
+        this.uncertainAppendFiles.delete(file);
+      } catch (error) {
+        this.uncertainAppendFiles.add(file);
+        throw error;
+      }
       for (const line of missing) known.add(line);
       this.persistedLines.set(file, known);
     }
@@ -224,16 +235,30 @@ function groupDurableLines(records: {
   return new Map([...grouped].map(([file, lines]) => [file, [...lines]]));
 }
 
-async function appendDurably(file: string, lines: string[]): Promise<void> {
+async function appendDurably(file: string, lines: string[], forceDirectorySync = false): Promise<void> {
   const existed = await fileExists(file);
+  const sealPartialTail = existed && await hasUnterminatedTail(file);
   const handle = await fs.open(file, "a");
   try {
-    await handle.writeFile(`${lines.join("\n")}\n`);
+    await handle.writeFile(`${sealPartialTail ? "\n" : ""}${lines.join("\n")}\n`);
     await handle.sync();
   } finally {
     await handle.close();
   }
-  if (!existed) await syncDirectory(path.dirname(file));
+  if (!existed || forceDirectorySync) await syncDirectory(path.dirname(file));
+}
+
+async function hasUnterminatedTail(file: string): Promise<boolean> {
+  const handle = await fs.open(file, "r");
+  try {
+    const { size } = await handle.stat();
+    if (size === 0) return false;
+    const tail = new Uint8Array(1);
+    const { bytesRead } = await handle.read(tail, 0, 1, size - 1);
+    return bytesRead === 1 && tail[0] !== 0x0a;
+  } finally {
+    await handle.close();
+  }
 }
 
 async function writeAtomically(file: string, bytes: string): Promise<void> {
