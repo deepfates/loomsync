@@ -236,6 +236,47 @@ describe("lync storage backends", () => {
     await expect(store.diagnostics()).resolves.toMatchObject({ events: 101 });
   });
 
+  const concurrentMutationCases: Array<[
+    string,
+    (store: BaseEventStore, event: LyncEventBody) => Promise<unknown>,
+  ]> = [
+    ["append", (store, event) => store.append(event)],
+    ["union", (store, event) => store.union(serializeLyncEvent(event))],
+    ["appendMany", (store, event) => store.appendMany([event])],
+  ];
+
+  it.each(concurrentMutationCases)(
+    "makes an independent %s durable before it resolves inside a suspended batch",
+    async (_name, mutate) => {
+      const store = new RecordingStore();
+      const independent = storageEvent(`independent-${_name}`);
+      const held = storageEvent(`held-${_name}`);
+      let releaseBatch!: () => void;
+      let reachSuspension!: () => void;
+      const suspended = new Promise<void>((resolve) => {
+        reachSuspension = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        releaseBatch = resolve;
+      });
+      async function* batch() {
+        reachSuspension();
+        await released;
+        yield held;
+      }
+
+      const heldBatch = store.appendMany(batch());
+      await suspended;
+      try {
+        await mutate(store, independent);
+        expect(store.durableIds).toContain(independent.id);
+      } finally {
+        releaseBatch();
+        await heldBatch;
+      }
+    },
+  );
+
   it("makes concurrent mutation results durable while a batch is suspended", async () => {
     const store = new RecordingStore();
     const batchRoot = storageEvent("suspended-batch-root");
